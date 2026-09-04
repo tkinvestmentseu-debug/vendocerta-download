@@ -116,6 +116,22 @@ if (-not (Test-Path $configCmd)) {
 $runnerAlreadyConfigured = Test-Path (Join-Path $RunnerRoot ".runner")
 if (-not $runnerAlreadyConfigured) {
     if ([string]::IsNullOrWhiteSpace($RegistrationToken)) {
+        $repoSlug = $RepoUrl -replace '^https://github\.com/','' -replace '/$',''
+        $gh = Get-Command gh -ErrorAction SilentlyContinue
+        if ($gh) {
+            Write-Host "GitHub CLI detected. Trying to obtain the short-lived runner registration token automatically..."
+            try {
+                $autoToken = (& $gh.Source api -X POST "repos/$repoSlug/actions/runners/registration-token" --jq .token 2>$null | Select-Object -First 1).Trim()
+                if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($autoToken)) {
+                    $RegistrationToken = $autoToken
+                    Write-Host "Runner registration token obtained through GitHub CLI." -ForegroundColor Green
+                }
+            } catch {
+                Write-Host "GitHub CLI could not provide a token. Falling back to the GitHub setup page." -ForegroundColor Yellow
+            }
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($RegistrationToken)) {
         $setupUrl = "$RepoUrl/settings/actions/runners/new?arch=x64&os=win"
         Write-Host "Opening the GitHub runner setup page. Copy the short-lived registration token from the Windows x64 setup command." -ForegroundColor Yellow
         Start-Process $setupUrl
