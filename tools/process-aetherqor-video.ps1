@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory=$true)][string]$Url,
     [Parameter(Mandatory=$true)][string]$Slug,
     [Parameter(Mandatory=$true)][string]$Topic,
-    [string]$Browser = "auto",
+    [string]$Browser = "chrome",
     [string]$OutputRoot = "$env:RUNNER_TEMP\aetherqor-video",
     [int]$FrameFps = 1,
     [int]$HighDetailFps = 4,
@@ -51,7 +51,8 @@ function Convert-VttToText([string]$InputFile, [string]$OutputFile) {
     $out | Set-Content -Path $OutputFile -Encoding UTF8
 }
 
-$runnerRoot = if ($env:AETHERQOR_RUNNER_ROOT) { $env:AETHERQOR_RUNNER_ROOT } else { "$env:LOCALAPPDATA\AETHERQOR_GitHubRunner" }
+$runnerRoot = if ($env:AETHERQOR_RUNNER_ROOT) { $env:AETHERQOR_RUNNER_ROOT } else { "C:\AETHERQOR_GitHubRunner" }
+if(-not (Test-Path $runnerRoot)) { $runnerRoot = "$env:LOCALAPPDATA\AETHERQOR_GitHubRunner" }
 $toolsRoot = if ($env:AETHERQOR_TOOLS) { $env:AETHERQOR_TOOLS } else { Join-Path $runnerRoot "tools" }
 $ytFallback = Join-Path $toolsRoot "yt-dlp\yt-dlp.exe"
 $ffFallback = Join-Path $toolsRoot "ffmpeg\bin\ffmpeg.exe"
@@ -67,23 +68,24 @@ $highDir = Join-Path $outDir "high_detail_4fps"
 $logsDir = Join-Path $outDir "logs"
 New-Item -ItemType Directory -Path $outDir,$framesDir,$sheetsDir,$highDir,$logsDir -Force | Out-Null
 
-$preferredBrowser = $Browser.ToLowerInvariant()
-if ($preferredBrowser -eq "auto") {
-    $browserFile = Join-Path $runnerRoot "browser.txt"
-    if (Test-Path $browserFile) { $preferredBrowser = (Get-Content $browserFile -First 1).Trim().ToLowerInvariant() }
-    if (-not $preferredBrowser) { $preferredBrowser = "chrome" }
-}
-
-$attemptBrowsers = New-Object System.Collections.Generic.List[string]
-foreach ($b in @($preferredBrowser,"chrome","edge","firefox","none")) {
-    if ($b -and -not $attemptBrowsers.Contains($b)) { $attemptBrowsers.Add($b) }
+# Chrome-only policy. Never fall back to Edge or Firefox.
+$cookieSpec = "chrome"
+$cookieSpecFile = Join-Path $runnerRoot "chrome-cookie-spec.txt"
+if(Test-Path $cookieSpecFile) {
+    $saved = (Get-Content $cookieSpecFile -First 1).Trim()
+    if($saved) { $cookieSpec = $saved }
 }
 
 $downloadOk = $false
 $browserUsed = ""
 $format = "bv*[height<=$MaxHeight]+ba/b[height<=$MaxHeight]"
-foreach ($b in $attemptBrowsers) {
-    $attemptLog = Join-Path $logsDir ("yt-dlp-{0}.log" -f $b)
+$attempts = @(
+    @{ Name = $cookieSpec; UseCookies = $true },
+    @{ Name = "chrome-local-ip-no-cookies"; UseCookies = $false }
+)
+foreach ($attempt in $attempts) {
+    $safeName = ($attempt.Name -replace '[^A-Za-z0-9_-]+','_')
+    $attemptLog = Join-Path $logsDir ("yt-dlp-{0}.log" -f $safeName)
     $args = @(
         '--no-playlist',
         '--write-info-json',
@@ -95,18 +97,18 @@ foreach ($b in $attemptBrowsers) {
         '-f',$format,
         '-o',(Join-Path $outDir 'source.%(ext)s')
     )
-    if ($b -ne "none") { $args += @('--cookies-from-browser',$b) }
+    if ($attempt.UseCookies) { $args += @('--cookies-from-browser',$cookieSpec) }
     $args += $Url
 
-    "Attempt browser=$b" | Add-Content -Path $attemptLog -Encoding UTF8
+    "Attempt=$($attempt.Name)" | Add-Content -Path $attemptLog -Encoding UTF8
     & $yt @args *> $attemptLog
     if ($LASTEXITCODE -eq 0) {
         $downloadOk = $true
-        $browserUsed = $b
+        $browserUsed = $attempt.Name
         break
     }
 }
-if (-not $downloadOk) { throw "yt-dlp could not download $Url with any local browser session or without cookies. See logs in $logsDir" }
+if (-not $downloadOk) { throw "yt-dlp could not download $Url using Chrome or local-IP no-cookie mode. See logs in $logsDir" }
 
 $source = Get-ChildItem -Path $outDir -File | Where-Object {
     $_.BaseName -eq 'source' -and $_.Extension -match '^\.(mp4|mkv|webm|mov)$'
