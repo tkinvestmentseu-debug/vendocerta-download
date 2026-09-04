@@ -48,7 +48,7 @@ foreach ($entry in $queries) {
     if (!$id) { continue }
     $duration = $null
     if ($j.PSObject.Properties.Name -contains 'duration') { $duration = $j.duration }
-    $rows.Add([pscustomobject]@{
+    $row = [pscustomobject]@{
       blocker = $entry.blocker
       query_key = $entry.key
       query = $entry.q
@@ -58,7 +58,10 @@ foreach ($entry in $queries) {
       channel = if ($j.PSObject.Properties.Name -contains 'channel') { [string]$j.channel } elseif ($j.PSObject.Properties.Name -contains 'uploader') { [string]$j.uploader } else { '' }
       duration_seconds = $duration
       view_count = if ($j.PSObject.Properties.Name -contains 'view_count') { $j.view_count } else { $null }
-    })
+    }
+    $rows.Add($row)
+    $durLog = if ($duration) { [Math]::Round([double]$duration) } else { -1 }
+    Write-Host ("CANDIDATE|B{0}|{1}|{2}|{3}|{4}|{5}" -f $entry.blocker,$entry.key,$id,$durLog,([string]$row.channel -replace '\|','/'),([string]$row.title -replace '\|','/'))
   }
 }
 
