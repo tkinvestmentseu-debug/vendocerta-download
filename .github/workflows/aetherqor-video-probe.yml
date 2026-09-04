@@ -1,0 +1,79 @@
+name: AETHERQOR Video Probe
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg jq curl python3-pil
+          python -m pip install -U pip
+          python -m pip install -U --pre yt-dlp
+          yt-dlp --version
+          ffmpeg -version | head -n 1
+      - name: Download test clip
+        run: |
+          mkdir -p out/frames out/meta out/sheets logs
+          VIDEO_URL='https://www.youtube.com/watch?v=3bw2SnKQhwA'
+          VIDEO_ID='3bw2SnKQhwA'
+          yt-dlp -J --skip-download "$VIDEO_URL" > out/meta/info.json 2>logs/meta.err || true
+          if yt-dlp --download-sections '*00:00:00-00:02:00' --force-keyframes-at-cuts --write-auto-subs --write-subs --sub-langs 'en.*,en' --merge-output-format mp4 -f 'bestvideo[height<=720]+bestaudio/best[height<=720]/18' -o 'out/source.%(ext)s' "$VIDEO_URL" >logs/download.out 2>logs/download.err; then
+            echo 'yt-dlp' > out/method.txt
+          else
+            echo 'yt-dlp failed, trying Piped' >> logs/download.err
+            ok=0
+            for api in https://pipedapi.kavin.rocks https://pipedapi.adminforge.de https://api.piped.private.coffee https://pipedapi.leptons.xyz; do
+              if curl -fsSL --max-time 20 "$api/streams/$VIDEO_ID" -o out/meta/piped.json; then
+                vurl=$(jq -r '[.videoStreams[]? | select((.height // 9999) <= 720) | select(.url != null)] | sort_by(.height) | reverse | .[0].url // empty' out/meta/piped.json)
+                if [ -n "$vurl" ] && ffmpeg -y -t 120 -i "$vurl" -c copy out/source.mp4 >>logs/download.out 2>>logs/download.err; then
+                  echo "piped:$api" > out/method.txt
+                  ok=1
+                  break
+                fi
+              fi
+            done
+            if [ "$ok" -ne 1 ]; then echo 'FAILED' > out/method.txt; fi
+          fi
+      - name: Extract frames
+        run: |
+          src=$(find out -maxdepth 1 -type f \( -name 'source.mp4' -o -name 'source.webm' -o -name 'source.mkv' \) | head -n1 || true)
+          if [ -z "$src" ]; then echo 'No video file' > out/no_video.txt; exit 0; fi
+          ffmpeg -y -i "$src" -vf "fps=1,scale='min(1280,iw)':-2" -q:v 3 out/frames/frame_%06d.jpg >logs/ffmpeg.out 2>logs/ffmpeg.err
+          python - <<'PY'
+from PIL import Image, ImageDraw
+from pathlib import Path
+frames=sorted(Path('out/frames').glob('frame_*.jpg'))
+sheets=Path('out/sheets'); sheets.mkdir(exist_ok=True)
+for si in range(0,len(frames),9):
+    batch=frames[si:si+9]
+    cw,ch=426,260
+    canvas=Image.new('RGB',(cw*3,ch*3),'black')
+    d=ImageDraw.Draw(canvas)
+    for j,p in enumerate(batch):
+        im=Image.open(p).convert('RGB'); im.thumbnail((cw,ch-24))
+        x=(j%3)*cw+(cw-im.width)//2; y=(j//3)*ch+24
+        canvas.paste(im,(x,y)); d.text(((j%3)*cw+8,(j//3)*ch+4),f'{si+j:04d}s',fill='white')
+    canvas.save(sheets/f'sheet_{si//9:04d}.jpg',quality=90)
+PY
+          find out/frames -type f | wc -l > out/frame_count.txt
+          find out/sheets -type f | wc -l > out/sheet_count.txt
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherqor-video-probe-3bw2SnKQhwA
+          path: |
+            out
+            logs
+          retention-days: 7
