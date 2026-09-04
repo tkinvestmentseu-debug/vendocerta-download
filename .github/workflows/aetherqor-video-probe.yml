@@ -1,4 +1,4 @@
-name: AETHERQOR Video Probe
+name: AETHERQOR Video Client Matrix
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -22,8 +22,6 @@ jobs:
           sudo apt-get install -y ffmpeg jq curl
           python -m pip install -U pip
           python -m pip install -U --pre yt-dlp bgutil-ytdlp-pot-provider
-          yt-dlp --version
-          ffmpeg -version | head -n 1
 
       - name: Start PO-token provider
         run: |
@@ -32,35 +30,51 @@ jobs:
           sleep 3
           docker ps -a > logs/docker_ps.txt
           docker logs bgutil-provider > logs/provider_start.log 2>&1 || true
-          cat logs/provider_start.log
-          if ! docker ps --format '{{.Names}}' | grep -qx bgutil-provider; then exit 1; fi
 
-      - name: Download test clip with PO-token provider
+      - name: Probe clients without webpage
+        shell: bash
         run: |
-          mkdir -p out/frames out/meta logs
+          set +e
           VIDEO_URL='https://www.youtube.com/watch?v=3bw2SnKQhwA'
-          POT_ARGS='youtubepot-bgutilhttp:base_url=http://localhost:4416'
-          yt-dlp -v --js-runtimes node --extractor-args "$POT_ARGS" -J --skip-download "$VIDEO_URL" > out/meta/info.json 2>logs/meta.err || true
-          if yt-dlp -v --js-runtimes node --extractor-args "$POT_ARGS" --download-sections '*00:00:00-00:02:00' --force-keyframes-at-cuts --write-auto-subs --write-subs --sub-langs 'en.*,en' --merge-output-format mp4 -f 'bestvideo[height<=720]+bestaudio/best[height<=720]/18' -o 'out/source.%(ext)s' "$VIDEO_URL" >logs/download.out 2>logs/download.err; then
-            echo 'yt-dlp+bgutil-http-po-token' > out/method.txt
-          else
-            echo 'FAILED' > out/method.txt
-            docker logs bgutil-provider > logs/bgutil.log 2>&1 || true
-          fi
+          mkdir -p out/client_matrix logs/client_matrix
+          clients=(tv web_safari android_vr web_embedded tv_simply mweb)
+          for client in "${clients[@]}"; do
+            echo "===== $client =====" | tee "logs/client_matrix/${client}.log"
+            rm -f "out/client_matrix/${client}.mp4" "out/client_matrix/${client}.webm"
+            yt-dlp -v \
+              --js-runtimes node \
+              --extractor-args "youtube:player_client=${client};player_skip=webpage,configs" \
+              --extractor-args "youtubepot-bgutilhttp:base_url=http://localhost:4416" \
+              --download-sections '*00:00:00-00:00:20' \
+              --force-keyframes-at-cuts \
+              -f 'best[height<=480]/bestvideo[height<=480]+bestaudio/best' \
+              --merge-output-format mp4 \
+              -o "out/client_matrix/${client}.%(ext)s" \
+              "$VIDEO_URL" >> "logs/client_matrix/${client}.log" 2>&1
+            rc=$?
+            size=$(find out/client_matrix -maxdepth 1 -type f -name "${client}.*" -printf '%s\n' | head -n1)
+            size=${size:-0}
+            echo "$client,$rc,$size" >> out/client_matrix/results.csv
+          done
+          echo 'client,exit_code,size_bytes' | cat - out/client_matrix/results.csv > out/client_matrix/results2.csv
+          mv out/client_matrix/results2.csv out/client_matrix/results.csv
+          cat out/client_matrix/results.csv
 
-      - name: Extract frames
-        if: always()
+      - name: Extract proof frames from any successful client
+        shell: bash
         run: |
-          src=$(find out -maxdepth 1 -type f \( -name 'source.mp4' -o -name 'source.webm' -o -name 'source.mkv' \) | head -n1 || true)
-          if [ -z "$src" ]; then echo 'No video file' > out/no_video.txt; exit 0; fi
-          ffmpeg -y -i "$src" -vf "fps=1,scale='min(1280,iw)':-2" -q:v 3 out/frames/frame_%06d.jpg >logs/ffmpeg.out 2>logs/ffmpeg.err
-          find out/frames -type f | wc -l > out/frame_count.txt
+          mkdir -p out/proof_frames
+          for f in out/client_matrix/*.mp4 out/client_matrix/*.webm; do
+            [ -f "$f" ] || continue
+            base=$(basename "$f")
+            ffmpeg -y -i "$f" -vf 'fps=1' -frames:v 5 "out/proof_frames/${base%.*}_%02d.jpg" >/dev/null 2>&1 || true
+          done
 
       - name: Upload artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aetherqor-video-probe-3bw2SnKQhwA
+          name: aetherqor-video-client-matrix
           path: |
             out
             logs
