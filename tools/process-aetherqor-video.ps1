@@ -68,7 +68,6 @@ $highDir = Join-Path $outDir "high_detail_4fps"
 $logsDir = Join-Path $outDir "logs"
 New-Item -ItemType Directory -Path $outDir,$framesDir,$sheetsDir,$highDir,$logsDir -Force | Out-Null
 
-# Chrome-only browser policy. Edge/Firefox are never used.
 $cookieSpec = "chrome"
 $cookieSpecFile = Join-Path $runnerRoot "chrome-cookie-spec.txt"
 if(Test-Path $cookieSpecFile) {
@@ -76,8 +75,6 @@ if(Test-Path $cookieSpecFile) {
     if($saved) { $cookieSpec = $saved }
 }
 
-# VIDEO is mandatory. Subtitles are deliberately NOT part of this command,
-# so a 429 on captions can never abort the MP4 download.
 $downloadOk = $false
 $downloadMode = ""
 $format = "bv*[height<=$MaxHeight]+ba/b[height<=$MaxHeight]"
@@ -88,71 +85,53 @@ $attempts = @(
 foreach ($attempt in $attempts) {
     $safeName = ($attempt.Name -replace '[^A-Za-z0-9_-]+','_')
     $attemptLog = Join-Path $logsDir ("yt-dlp-video-{0}.log" -f $safeName)
-    $args = @(
-        '--no-playlist',
-        '--write-info-json',
-        '--merge-output-format','mp4',
-        '-f',$format,
-        '-o',(Join-Path $outDir 'source.%(ext)s')
-    )
+    $args = @('--no-playlist','--write-info-json','--merge-output-format','mp4','-f',$format,'-o',(Join-Path $outDir 'source.%(ext)s'))
     if ($attempt.UseCookies) { $args += @('--cookies-from-browser',$cookieSpec) }
     $args += $Url
-
     "VIDEO_ATTEMPT=$($attempt.Name)" | Set-Content -Path $attemptLog -Encoding UTF8
     & $yt @args *>> $attemptLog
     $code = $LASTEXITCODE
-    if ($code -eq 0) {
-        $downloadOk = $true
-        $downloadMode = $attempt.Name
-        break
-    }
+    if ($code -eq 0) { $downloadOk = $true; $downloadMode = $attempt.Name; break }
 }
-if (-not $downloadOk) {
-    throw "yt-dlp could not download VIDEO $Url using Chrome or local-IP no-cookie mode. See $logsDir"
-}
+if (-not $downloadOk) { throw "yt-dlp could not download VIDEO $Url using Chrome or local-IP no-cookie mode. See $logsDir" }
 
-$source = Get-ChildItem -Path $outDir -File | Where-Object {
+$source = @(Get-ChildItem -Path $outDir -File | Where-Object {
     $_.BaseName -eq 'source' -and $_.Extension -match '^\.(mp4|mkv|webm|mov)$'
-} | Sort-Object Length -Descending | Select-Object -First 1
+} | Sort-Object Length -Descending)[0]
 if (-not $source) { throw "Video source file was not produced despite yt-dlp exit code 0." }
 
-# Captions are best-effort and separate from the video. English only to avoid
-# YouTube translation-caption rate limiting (the prior PL request returned HTTP 429).
 $subLog = Join-Path $logsDir 'yt-dlp-subtitles-best-effort.log'
-$subArgs = @(
-    '--no-playlist',
-    '--skip-download',
-    '--write-auto-subs',
-    '--write-subs',
-    '--sub-langs','en.*,en',
-    '--sub-format','vtt',
-    '-o',(Join-Path $outDir 'source.%(ext)s')
-)
-if ($downloadMode -ne 'chrome-local-ip-no-cookies') {
-    $subArgs += @('--cookies-from-browser',$cookieSpec)
-}
+$subArgs = @('--no-playlist','--skip-download','--write-auto-subs','--write-subs','--sub-langs','en-orig,en','--sub-format','vtt','-o',(Join-Path $outDir 'source.%(ext)s'))
+if ($downloadMode -ne 'chrome-local-ip-no-cookies') { $subArgs += @('--cookies-from-browser',$cookieSpec) }
 $subArgs += $Url
 "SUBTITLE_ATTEMPT_MODE=$downloadMode" | Set-Content -Path $subLog -Encoding UTF8
 & $yt @subArgs *>> $subLog
 $subtitleExitCode = $LASTEXITCODE
-if ($subtitleExitCode -ne 0) {
-    "Subtitle download failed with exit code $subtitleExitCode. Video processing continues." | Add-Content -Path $subLog -Encoding UTF8
-}
+if ($subtitleExitCode -ne 0) { "Subtitle download failed with exit code $subtitleExitCode. Video processing continues." | Add-Content -Path $subLog -Encoding UTF8 }
 
-$infoFile = Get-ChildItem -Path $outDir -Filter '*.info.json' -File | Select-Object -First 1
+$infoFile = @(Get-ChildItem -Path $outDir -Filter '*.info.json' -File | Select-Object -First 1)[0]
 $info = $null
 if ($infoFile) { $info = Get-Content $infoFile.FullName -Raw -Encoding UTF8 | ConvertFrom-Json }
 
-$durationText = (& $ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 $source.FullName | Select-Object -First 1)
-if ($LASTEXITCODE -ne 0 -or -not $durationText) { throw "ffprobe could not read source video." }
+$probeLog = Join-Path $logsDir 'ffprobe.log'
+$durationText = (& $ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 $source.FullName 2>> $probeLog | Select-Object -First 1)
+if ($LASTEXITCODE -ne 0 -or -not $durationText) {
+    $normalized = Join-Path $outDir 'source_normalized.mkv'
+    $normLog = Join-Path $logsDir 'ffmpeg-normalize.log'
+    & $ffmpeg -hide_banner -loglevel warning -y -i $source.FullName -map 0:v:0 -map '0:a:0?' -c copy $normalized *>> $normLog
+    if ($LASTEXITCODE -eq 0 -and (Test-Path $normalized)) {
+        $source = Get-Item $normalized
+        $durationText = (& $ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 $source.FullName 2>> $probeLog | Select-Object -First 1)
+    }
+}
+if ($LASTEXITCODE -ne 0 -or -not $durationText) { throw "ffprobe could not read source video even after normalization." }
 $durationText | Set-Content (Join-Path $outDir 'duration_seconds.txt') -Encoding ASCII
 
-# Full-resolution frame every second.
 $frameLog = Join-Path $logsDir "ffmpeg-frames.log"
 & $ffmpeg -hide_banner -loglevel warning -i $source.FullName -vf "fps=$FrameFps" -q:v 2 (Join-Path $framesDir 'frame_%06d.jpg') *>> $frameLog
 if ($LASTEXITCODE -ne 0) { throw "FFmpeg 1fps extraction failed." }
 
-$frameFiles = Get-ChildItem -Path $framesDir -Filter 'frame_*.jpg' -File | Sort-Object Name
+$frameFiles = @(Get-ChildItem -Path $framesDir -Filter 'frame_*.jpg' -File | Sort-Object Name)
 if ($frameFiles.Count -eq 0) { throw "FFmpeg created zero 1fps frames." }
 $frameCsv = New-Object System.Collections.Generic.List[string]
 $frameCsv.Add('frame,second,timecode')
@@ -162,13 +141,11 @@ for ($i=0; $i -lt $frameFiles.Count; $i++) {
 }
 $frameCsv | Set-Content -Path (Join-Path $outDir 'frame_index.csv') -Encoding UTF8
 
-# 3x3 review sheets. Individual 1fps frames stay full resolution; sheets use
-# 960px-wide cells so UI remains readable without producing gigantic artifacts.
 $sheetLog = Join-Path $logsDir "ffmpeg-sheets.log"
 & $ffmpeg -hide_banner -loglevel warning -framerate $FrameFps -start_number 1 -i (Join-Path $framesDir 'frame_%06d.jpg') -vf "scale=960:-2,tile=3x3:nb_frames=9:padding=4:margin=4" -fps_mode vfr -q:v 2 (Join-Path $sheetsDir 'sheet_%05d.jpg') *>> $sheetLog
 if ($LASTEXITCODE -ne 0) { throw "FFmpeg contact-sheet generation failed." }
 
-$sheetFiles = Get-ChildItem -Path $sheetsDir -Filter 'sheet_*.jpg' -File | Sort-Object Name
+$sheetFiles = @(Get-ChildItem -Path $sheetsDir -Filter 'sheet_*.jpg' -File | Sort-Object Name)
 $sheetCsv = New-Object System.Collections.Generic.List[string]
 $sheetCsv.Add('sheet,start_second,end_second,start_timecode,end_timecode')
 for ($i=0; $i -lt $sheetFiles.Count; $i++) {
@@ -178,8 +155,7 @@ for ($i=0; $i -lt $sheetFiles.Count; $i++) {
 }
 $sheetCsv | Set-Content -Path (Join-Path $outDir 'sheet_index.csv') -Encoding UTF8
 
-# Transcript from available English VTT.
-$transcriptFiles = Get-ChildItem -Path $outDir -Filter '*.vtt' -File
+$transcriptFiles = @(Get-ChildItem -Path $outDir -Filter '*.vtt' -File)
 $selectedTranscript = $null
 if ($transcriptFiles.Count -gt 0) {
     $selectedTranscript = $transcriptFiles | Sort-Object @{Expression={ if ($_.Name -match '\.en-orig\.vtt$') {0} elseif ($_.Name -match '\.en\.vtt$') {1} elseif ($_.Name -match '\.en') {2} else {3} }}, Name | Select-Object -First 1
@@ -189,7 +165,6 @@ if ($transcriptFiles.Count -gt 0) {
     "No English YouTube subtitles were available. Video frames remain complete." | Set-Content -Path (Join-Path $outDir 'TRANSCRIPT_MISSING.txt') -Encoding UTF8
 }
 
-# Up to six minutes of 4fps detail from chapters whose titles look relevant.
 $importantRegex = '(?i)hair|bang|bun|curve|armor|armour|retopo|topolog|eye|skin|cloth|gear|rig|vfx|mesh|geometry|uv|unwrap|bake|normal|material|shader|sculpt|accessor|plate|strap'
 $remaining = $HighDetailMaxSeconds
 $highCsv = New-Object System.Collections.Generic.List[string]
@@ -197,7 +172,7 @@ $highCsv.Add('segment,title,start_second,end_second,fps,frames')
 $highFrameCount = 0
 if ($info -and $remaining -gt 0 -and ($info.PSObject.Properties.Name -contains 'chapters') -and $info.chapters) {
     $segmentNo = 0
-    foreach ($chapter in $info.chapters) {
+    foreach ($chapter in @($info.chapters)) {
         if ($remaining -le 0) { break }
         $title = [string]$chapter.title
         if ($title -notmatch $importantRegex) { continue }
@@ -207,7 +182,6 @@ if ($info -and $remaining -gt 0 -and ($info.PSObject.Properties.Name -contains '
         $duration = [Math]::Min($end - $start, 90)
         $duration = [Math]::Min($duration, $remaining)
         if ($duration -lt 1) { continue }
-
         $segmentNo++
         $safe = ($title -replace '[^A-Za-z0-9_-]+','_').Trim('_')
         if ($safe.Length -gt 50) { $safe = $safe.Substring(0,50) }
@@ -219,7 +193,7 @@ if ($info -and $remaining -gt 0 -and ($info.PSObject.Properties.Name -contains '
         $durationInvariant = $duration.ToString([Globalization.CultureInfo]::InvariantCulture)
         & $ffmpeg -hide_banner -loglevel warning -ss $startInvariant -t $durationInvariant -i $source.FullName -vf "fps=$HighDetailFps" -q:v 2 (Join-Path $segDir 'frame_%06d.jpg') *>> $segLog
         if ($LASTEXITCODE -eq 0) {
-            $count = (Get-ChildItem -Path $segDir -Filter 'frame_*.jpg' -File).Count
+            $count = @(Get-ChildItem -Path $segDir -Filter 'frame_*.jpg' -File).Count
             $highFrameCount += $count
             $highCsv.Add(('"{0}","{1}",{2},{3},{4},{5}' -f $segDir.Split([IO.Path]::DirectorySeparatorChar)[-1],($title -replace '"','""'),$start,($start+$duration),$HighDetailFps,$count))
             $remaining -= $duration
@@ -228,37 +202,20 @@ if ($info -and $remaining -gt 0 -and ($info.PSObject.Properties.Name -contains '
 }
 $highCsv | Set-Content -Path (Join-Path $outDir 'high_detail_index.csv') -Encoding UTF8
 
-$titleValue = ""
-$durationValue = 0
-$uploaderValue = ""
+$titleValue = ""; $durationValue = 0; $uploaderValue = ""
 if ($info) {
     if ($info.PSObject.Properties.Name -contains 'title') { $titleValue = [string]$info.title }
     if ($info.PSObject.Properties.Name -contains 'duration' -and $info.duration) { $durationValue = [double]$info.duration }
     if ($info.PSObject.Properties.Name -contains 'uploader') { $uploaderValue = [string]$info.uploader }
 }
 $manifest = [ordered]@{
-    slug = $Slug
-    url = $Url
-    topic = $Topic
-    title = $titleValue
-    uploader = $uploaderValue
-    duration_seconds = $durationValue
-    download_mode = $downloadMode
-    frame_fps = $FrameFps
-    frame_count = $frameFiles.Count
-    contact_sheet_count = $sheetFiles.Count
-    high_detail_fps = $HighDetailFps
-    high_detail_frame_count = $highFrameCount
-    transcript = if ($selectedTranscript) { 'transcript.txt' } else { $null }
-    subtitle_exit_code = $subtitleExitCode
-    created_utc = [DateTime]::UtcNow.ToString('o')
+    slug = $Slug; url = $Url; topic = $Topic; title = $titleValue; uploader = $uploaderValue;
+    duration_seconds = if($durationValue){$durationValue}else{[double]$durationText};
+    frame_fps = $FrameFps; frame_count = $frameFiles.Count; sheet_count = $sheetFiles.Count;
+    high_detail_fps = $HighDetailFps; high_detail_frame_count = $highFrameCount;
+    source_file = $source.Name; download_mode = $downloadMode;
+    transcript = if($selectedTranscript){'transcript.txt'}else{'TRANSCRIPT_MISSING.txt'};
+    completed_utc = [DateTime]::UtcNow.ToString('o')
 }
-$manifest | ConvertTo-Json -Depth 5 | Set-Content -Path (Join-Path $outDir 'manifest.json') -Encoding UTF8
-
-# Keep frames/transcript/metadata in the artifact, not the full downloaded movie.
-if ($env:AETHERQOR_KEEP_SOURCE -ne '1') {
-    Remove-Item $source.FullName -Force
-}
-
-Write-Host "AETHERQOR VIDEO COMPLETE: $Slug"
-Write-Host "Frames: $($frameFiles.Count) | Sheets: $($sheetFiles.Count) | High-detail frames: $highFrameCount | Mode: $downloadMode"
+$manifest | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $outDir 'manifest.json') -Encoding UTF8
+Write-Host "AETHERQOR_VIDEO_COMPLETE slug=$Slug frames=$($frameFiles.Count) sheets=$($sheetFiles.Count) high=$highFrameCount source=$($source.Name)"
