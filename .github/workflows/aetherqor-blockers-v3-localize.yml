@@ -1,0 +1,100 @@
+name: AETHERQOR Blockers V3 Localize Claude Pack
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/blockers_v3/LOCALIZE_TRIGGER.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  localize:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 240
+    env:
+      REPORT_RUN_ID: '33909472057'
+      VIDEO_RUN_ID: '33904162671'
+      TARGET: 'D:\AetherqorFoundry\research\blockers_v3\CLAUDE_VIDEO_REPORT_33904162671'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare local target
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:TARGET -Force | Out-Null
+          New-Item -ItemType Directory -Path (Join-Path $env:TARGET 'raw_frames') -Force | Out-Null
+          New-Item -ItemType Directory -Path (Join-Path $env:TARGET 'high_detail') -Force | Out-Null
+
+      - name: Download final Claude report directly to local disk
+        uses: actions/download-artifact@v4
+        with:
+          name: AETHERQOR_CLAUDE_VIDEO_REPORT_33904162671
+          path: D:\AetherqorFoundry\research\blockers_v3\CLAUDE_VIDEO_REPORT_33904162671
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 33909472057
+
+      - name: Download all raw 1fps frame artifacts directly to local disk
+        uses: actions/download-artifact@v4
+        with:
+          pattern: aqv3-*-frames
+          path: D:\AetherqorFoundry\research\blockers_v3\CLAUDE_VIDEO_REPORT_33904162671\raw_frames
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 33904162671
+
+      - name: Download all high-detail 4fps artifacts directly to local disk
+        uses: actions/download-artifact@v4
+        with:
+          pattern: aqv3-*-highdetail
+          path: D:\AetherqorFoundry\research\blockers_v3\CLAUDE_VIDEO_REPORT_33904162671\high_detail
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: 33904162671
+
+      - name: Verify local package and write Claude entrypoint
+        shell: pwsh
+        run: |
+          $target = $env:TARGET
+          $required = @('CLAUDE_VIDEO_HANDOFF.md','FINAL_STATUS.md','ARTIFACT_INDEX.md','REPORT_MANIFEST.json','videos.psv')
+          $missing = @($required | Where-Object { -not (Test-Path (Join-Path $target $_)) })
+          $metaDirs = @(Get-ChildItem (Join-Path $target 'meta') -Directory -ErrorAction SilentlyContinue)
+          $sheetDirs = @(Get-ChildItem (Join-Path $target 'sheets') -Directory -ErrorAction SilentlyContinue)
+          $frameDirs = @(Get-ChildItem (Join-Path $target 'raw_frames') -Directory -ErrorAction SilentlyContinue)
+          $highDirs = @(Get-ChildItem (Join-Path $target 'high_detail') -Directory -ErrorAction SilentlyContinue)
+          $frameCount = @(Get-ChildItem (Join-Path $target 'raw_frames') -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $sheetCount = @(Get-ChildItem (Join-Path $target 'sheets') -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $highCount = @(Get-ChildItem (Join-Path $target 'high_detail') -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+
+          $lines = @(
+            '# AETHERQOR BLOCKERS V3 - LOCAL PACKAGE READY',
+            '',
+            "Target: $target",
+            "Source video run: $env:VIDEO_RUN_ID",
+            "Final report run: $env:REPORT_RUN_ID",
+            "Meta directories: $($metaDirs.Count)",
+            "Sheet directories: $($sheetDirs.Count)",
+            "Raw 1fps artifact directories: $($frameDirs.Count)",
+            "High-detail artifact directories: $($highDirs.Count)",
+            "3x3 sheet JPG count: $sheetCount",
+            "Raw 1fps JPG count: $frameCount",
+            "High-detail 4fps JPG count: $highCount",
+            '',
+            'CLAUDE: Read CLAUDE_VIDEO_HANDOFF.md, FINAL_STATUS.md and REPORT_MANIFEST.json first.',
+            'Use meta/ and sheets/ for triage. Use raw_frames/ only for selected time ranges. Use high_detail/ for close inspection.',
+            'Do not attempt GitHub auth, gh CLI, or web download. All research material is local in this directory.'
+          )
+          $lines | Set-Content (Join-Path $target 'LOCAL_READY.md') -Encoding UTF8
+
+          if($missing.Count -gt 0) { throw "Missing required report files: $($missing -join ', ')" }
+          if($metaDirs.Count -lt 11) { throw "Expected 11 meta directories, found $($metaDirs.Count)" }
+          if($sheetDirs.Count -lt 11) { throw "Expected 11 sheet directories, found $($sheetDirs.Count)" }
+          if($frameDirs.Count -lt 11) { throw "Expected 11 raw-frame artifact directories, found $($frameDirs.Count)" }
+          if($frameCount -le 0) { throw 'Zero raw 1fps JPG files found.' }
+
+          Write-Host 'LOCAL_AETHERQOR_CLAUDE_PACK_READY'
+          Get-Content (Join-Path $target 'LOCAL_READY.md')
