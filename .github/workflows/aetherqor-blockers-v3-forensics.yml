@@ -1,0 +1,29 @@
+name: AETHERQOR Blockers V3 Forensics
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/blockers_v3/FORENSICS_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-blockers-v3-forensics
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read-only forensic inventory
+        shell: pwsh
+        run: |
+          ./tools/scan-aetherqor-blockers-v3.ps1 -OutputDir "$env:RUNNER_TEMP\aetherqor-blockers-v3-forensics"
+      - name: Upload forensic inventory
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_BLOCKERS_V3_FORENSICS
+          path: ${{ runner.temp }}\aetherqor-blockers-v3-forensics\*
+          retention-days: 14
+          if-no-files-found: error
