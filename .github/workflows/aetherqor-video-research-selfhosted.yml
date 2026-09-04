@@ -14,15 +14,12 @@ on:
         default: "all"
         type: string
       browser:
-        description: "Browser profile used for YouTube cookies"
+        description: "Browser used for AETHERQOR browser steps"
         required: true
-        default: "auto"
+        default: "chrome"
         type: choice
         options:
-          - auto
           - chrome
-          - edge
-          - firefox
       max_height:
         description: "Maximum source video height"
         required: true
@@ -88,7 +85,7 @@ jobs:
           VIDEO_URL: ${{ matrix.url }}
           VIDEO_SLUG: ${{ matrix.slug }}
           VIDEO_TOPIC: ${{ matrix.topic }}
-          VIDEO_BROWSER: ${{ inputs.browser || 'auto' }}
+          VIDEO_BROWSER: chrome
           VIDEO_MAX_HEIGHT: ${{ inputs.max_height || '1080' }}
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'aetherqor-video'
