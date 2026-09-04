@@ -11,20 +11,25 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-function Write-Step([string]$Text) {
-    Write-Host "`n=== $Text ===" -ForegroundColor Cyan
-}
-
+function Write-Step([string]$Text) { Write-Host "`n=== $Text ===" -ForegroundColor Cyan }
 function Get-PlainTextFromSecureString([Security.SecureString]$Secure) {
     $ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Secure)
     try { return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr) }
     finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr) }
 }
-
 function Download-File([string]$Url, [string]$Destination) {
     $parent = Split-Path -Parent $Destination
     New-Item -ItemType Directory -Path $parent -Force | Out-Null
     Invoke-WebRequest -UseBasicParsing -Uri $Url -OutFile $Destination -Headers @{"User-Agent"="AETHERQOR-Runner-Installer"}
+}
+function Find-Chrome {
+    $candidates = @(
+        "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+        "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+        "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+    )
+    foreach ($p in $candidates) { if (Test-Path $p) { return $p } }
+    return $null
 }
 
 Write-Step "Preparing local directories"
@@ -50,55 +55,22 @@ if (-not $SkipToolInstall) {
     $ffmpegExe = Get-ChildItem -Path $ffExtract -Filter ffmpeg.exe -Recurse -File | Select-Object -First 1
     $ffprobeExe = Get-ChildItem -Path $ffExtract -Filter ffprobe.exe -Recurse -File | Select-Object -First 1
     if (-not $ffmpegExe) { throw "Could not find ffmpeg.exe in downloaded package." }
-
     $ffBin = Join-Path $ffDir "bin"
     New-Item -ItemType Directory -Path $ffBin -Force | Out-Null
     Copy-Item $ffmpegExe.FullName (Join-Path $ffBin "ffmpeg.exe") -Force
     if ($ffprobeExe) { Copy-Item $ffprobeExe.FullName (Join-Path $ffBin "ffprobe.exe") -Force }
-    (Join-Path $ffBin "ffmpeg.exe") | Set-Content -Path (Join-Path $RunnerRoot "ffmpeg-path.txt") -Encoding ASCII
     & (Join-Path $ffBin "ffmpeg.exe") -version | Select-Object -First 1
-    if ($LASTEXITCODE -ne 0) { throw "FFmpeg verification failed." }
-
     Remove-Item $ffZip -Force -ErrorAction SilentlyContinue
     Remove-Item $ffExtract -Recurse -Force -ErrorAction SilentlyContinue
 } else {
     $ytExe = Join-Path $ytDir "yt-dlp.exe"
 }
 
-Write-Step "Checking browser session for YouTube"
-$browserCandidates = New-Object System.Collections.Generic.List[string]
-$chromePaths = @(
-    "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-    "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-    "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-)
-$edgePaths = @(
-    "$env:ProgramFiles\Microsoft\Edge\Application\msedge.exe",
-    "${env:ProgramFiles(x86)}\Microsoft\Edge\Application\msedge.exe"
-)
-$firefoxPaths = @(
-    "$env:ProgramFiles\Mozilla Firefox\firefox.exe",
-    "${env:ProgramFiles(x86)}\Mozilla Firefox\firefox.exe"
-)
-if ($chromePaths | Where-Object { Test-Path $_ }) { $browserCandidates.Add("chrome") }
-if ($edgePaths | Where-Object { Test-Path $_ }) { $browserCandidates.Add("edge") }
-if ($firefoxPaths | Where-Object { Test-Path $_ }) { $browserCandidates.Add("firefox") }
-if ($browserCandidates.Count -eq 0) { $browserCandidates.Add("chrome") }
-
-$browserChosen = $browserCandidates[0]
-if (Test-Path $ytExe) {
-    foreach ($browser in $browserCandidates) {
-        Write-Host "Testing YouTube session from $browser..."
-        $probeOut = & $ytExe --no-playlist --skip-download --cookies-from-browser $browser --print title "https://www.youtube.com/watch?v=3bw2SnKQhwA" 2>&1
-        if ($LASTEXITCODE -eq 0) {
-            $browserChosen = $browser
-            Write-Host "YouTube session OK via $browser." -ForegroundColor Green
-            break
-        }
-        Write-Host "Session test via $browser did not pass. The workflow will retry browsers automatically." -ForegroundColor Yellow
-    }
-}
-$browserChosen | Set-Content -Path (Join-Path $RunnerRoot "browser.txt") -Encoding ASCII
+Write-Step "Chrome preference"
+$chromeExe = Find-Chrome
+if (-not $chromeExe) { throw "Google Chrome was not found. Install Chrome before continuing." }
+"chrome" | Set-Content -Path (Join-Path $RunnerRoot "browser.txt") -Encoding ASCII
+Write-Host "Chrome selected for all AETHERQOR browser steps." -ForegroundColor Green
 
 Write-Step "Installing GitHub Actions runner"
 $configCmd = Join-Path $RunnerRoot "config.cmd"
@@ -119,22 +91,15 @@ if (-not $runnerAlreadyConfigured) {
         $repoSlug = $RepoUrl -replace '^https://github\.com/','' -replace '/$',''
         $gh = Get-Command gh -ErrorAction SilentlyContinue
         if ($gh) {
-            Write-Host "GitHub CLI detected. Trying to obtain the short-lived runner registration token automatically..."
             try {
                 $autoToken = (& $gh.Source api -X POST "repos/$repoSlug/actions/runners/registration-token" --jq .token 2>$null | Select-Object -First 1).Trim()
-                if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($autoToken)) {
-                    $RegistrationToken = $autoToken
-                    Write-Host "Runner registration token obtained through GitHub CLI." -ForegroundColor Green
-                }
-            } catch {
-                Write-Host "GitHub CLI could not provide a token. Falling back to the GitHub setup page." -ForegroundColor Yellow
-            }
+                if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($autoToken)) { $RegistrationToken = $autoToken }
+            } catch {}
         }
     }
     if ([string]::IsNullOrWhiteSpace($RegistrationToken)) {
         $setupUrl = "$RepoUrl/settings/actions/runners/new?arch=x64&os=win"
-        Write-Host "Opening the GitHub runner setup page. Copy the short-lived registration token from the Windows x64 setup command." -ForegroundColor Yellow
-        Start-Process $setupUrl
+        Start-Process -FilePath $chromeExe -ArgumentList $setupUrl
         $secureToken = Read-Host "Paste the GitHub runner registration token" -AsSecureString
         $RegistrationToken = Get-PlainTextFromSecureString $secureToken
     }
@@ -145,9 +110,7 @@ if (-not $runnerAlreadyConfigured) {
     try {
         & .\config.cmd --url $RepoUrl --token $RegistrationToken --name $runnerName --labels "aetherqor-video" --work "_work" --unattended --replace
         if ($LASTEXITCODE -ne 0) { throw "GitHub runner configuration failed." }
-    } finally {
-        Pop-Location
-    }
+    } finally { Pop-Location }
 } else {
     Write-Host "Runner is already configured. Existing registration was preserved." -ForegroundColor Green
 }
@@ -166,22 +129,14 @@ call run.cmd
 $launcherContent | Set-Content -Path $launcher -Encoding ASCII
 
 if ($EnableAutoStart) {
-    Write-Step "Enabling runner at Windows sign-in"
     $startup = [Environment]::GetFolderPath("Startup")
-    $startupLauncher = Join-Path $startup "AETHERQOR-GitHub-Runner.cmd"
-    Copy-Item $launcher $startupLauncher -Force
-    Write-Host "Auto-start enabled for the current Windows user." -ForegroundColor Green
-} else {
-    Write-Host "Auto-start was not enabled. You can rerun this installer with -EnableAutoStart later." -ForegroundColor Yellow
+    Copy-Item $launcher (Join-Path $startup "AETHERQOR-GitHub-Runner.cmd") -Force
 }
 
 Write-Step "Starting runner now"
 Start-Process -FilePath "cmd.exe" -ArgumentList "/c", ('"' + $launcher + '"') -WindowStyle Minimized
-
 Write-Host "`nREADY" -ForegroundColor Green
 Write-Host "Runner root: $RunnerRoot"
-Write-Host "Browser preference: $browserChosen"
+Write-Host "Browser preference: Chrome"
 Write-Host "Repo: $RepoUrl"
 Write-Host "Label: aetherqor-video"
-Write-Host "Launcher: $launcher"
-Write-Host "`nImportant: keep the Windows user session logged in. The workflow reads YouTube cookies only from this local user profile and never commits them to GitHub."
