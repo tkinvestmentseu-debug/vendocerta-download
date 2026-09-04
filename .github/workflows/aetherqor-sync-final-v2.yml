@@ -26,6 +26,7 @@ jobs:
           $dst = 'D:\AetherqorFoundry\research\aetherqor\final_v2'
           $downloads = Join-Path $env:USERPROFILE 'Downloads'
           $zip = Join-Path $downloads 'AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2_2026-09-04.zip'
+          $stage = Join-Path $env:GITHUB_WORKSPACE 'final_pack_artifact'
 
           $required = @(
             'README.md',
@@ -37,18 +38,22 @@ jobs:
           )
 
           foreach ($name in $required) {
-            $p = Join-Path $src $name
-            if (!(Test-Path $p)) { throw "Missing required final-v2 file: $name" }
+            if (!(Test-Path (Join-Path $src $name))) { throw "Missing required final-v2 file: $name" }
           }
 
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
           New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+          if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
 
           Get-ChildItem -Path $dst -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
-          Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force
+          foreach ($name in $required) {
+            Copy-Item (Join-Path $src $name) (Join-Path $dst $name) -Force
+            Copy-Item (Join-Path $src $name) (Join-Path $stage $name) -Force
+          }
 
           if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path (Join-Path $src '*') -DestinationPath $zip -CompressionLevel Optimal -Force
+          Compress-Archive -Path ($required | ForEach-Object { Join-Path $src $_ }) -DestinationPath $zip -CompressionLevel Optimal -Force
 
           $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash
           $marker = Join-Path $dst '_SYNC_OK.txt'
@@ -60,11 +65,9 @@ jobs:
             "ZIP_SHA256=$hash",
             "FILES=$($required.Count)"
           ) | Set-Content -Path $marker -Encoding UTF8
+          Copy-Item $marker (Join-Path $stage '_SYNC_OK.txt') -Force
 
-          Copy-Item -Path $marker -Destination (Join-Path $env:GITHUB_WORKSPACE '_SYNC_OK.txt') -Force
-          Copy-Item -Path $zip -Destination (Join-Path $env:GITHUB_WORKSPACE 'AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2_2026-09-04.zip') -Force
-
-          Write-Host "SYNC_OK"
+          Write-Host 'SYNC_OK'
           Write-Host "Destination: $dst"
           Write-Host "ZIP: $zip"
           Write-Host "SHA256: $hash"
@@ -72,9 +75,7 @@ jobs:
       - name: Upload final pack artifact
         uses: actions/upload-artifact@v4
         with:
-          name: AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2
-          path: |
-            AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2_2026-09-04.zip
-            _SYNC_OK.txt
+          name: AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2_SINGLE_ZIP
+          path: final_pack_artifact/*
           retention-days: 14
           if-no-files-found: error
