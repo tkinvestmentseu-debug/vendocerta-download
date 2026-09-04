@@ -1,0 +1,14 @@
+# slug|url|topic
+p1_zremesh_hardsurface_1|https://www.youtube.com/watch?v=zXUlBbrecug|P1 ZRemesher hard-surface retopology part 1: edge structure and minimum polygon density
+p1_zremesh_hardsurface_2|https://www.youtube.com/watch?v=nlZEqwiK5YM|P1 ZRemesher hard-surface retopology part 2: hard-edge preservation workflow
+p1_zremesh_hardsurface_3|https://www.youtube.com/watch?v=IbXqcmba1m8|P1 ZRemesher hard-surface retopology part 3: maximum detail with minimum polygon count
+p1_zbrush_shell_design|https://www.youtube.com/watch?v=CiL5MKvpQA0|P1 ZBrush hard-surface shell design: clean shell construction, panel boundaries and concavity preservation
+p1_quadremesher_character|https://www.youtube.com/watch?v=MDaDsmRUUpk|P1/P4 Blender character breakdown using Quad Remesher, weight painting and corrective shapes
+p2_hardsurface_pbr_games|https://www.youtube.com/watch?v=UEeDBndWwys|P2 hard-surface modeling for games and PBR texturing: what stays geometry vs bake
+p2_normalmap_dithering|https://www.youtube.com/watch?v=6D5tBEjS-N0|P2 hard-surface normal-map dithering and low-poly shading preservation
+p2_character_hardsurface|https://www.youtube.com/watch?v=fhidSUb7A_w|P2 game character creation with hard-surface weapons/accessories and game-resolution decisions
+p3_ffvii_hair_normals|https://www.youtube.com/watch?v=w8SjXHQ8ASY|P3 production character hair breakdown: hair cards, edited normals and in-game appearance
+p3_urp_hair_shader|https://www.youtube.com/watch?v=EmU62lWMhSU|P3 Unity URP hair-card shader behavior, transparency and realtime lighting
+p4_armor_weight_paint|https://www.youtube.com/watch?v=TpsOpYx9Wy8|P4 armor weight painting for a low-poly game character exported to Unity
+p4_weightpaint_blender4|https://www.youtube.com/watch?v=PLWv9yjVaoU|P4 Blender 4 weight painting: transfer weights, influence cleanup, joint deformation and topology dependence
+p4_cc_blender_weight_transfer|https://www.youtube.com/watch?v=eC1d2VlgrAI|P4 Character Creator/Blender clothing weight transfer workflow and deformation verification
