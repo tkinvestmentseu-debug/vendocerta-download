@@ -1,0 +1,3 @@
+AETHERQOR_FINAL_V2_SYNC=1
+REQUESTED_UTC=2026-09-04T14:30:00Z
+PURPOSE=sync_final_video_grounded_pack_to_AetherqorFoundry_and_Downloads
