@@ -1,0 +1,118 @@
+name: AETHERQOR Video Research Self-Hosted
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_filter:
+        description: "all or one slug from research/aetherqor/videos.psv"
+        required: true
+        default: "all"
+        type: string
+      browser:
+        description: "Browser profile used for YouTube cookies"
+        required: true
+        default: "auto"
+        type: choice
+        options:
+          - auto
+          - chrome
+          - edge
+          - firefox
+      max_height:
+        description: "Maximum source video height"
+        required: true
+        default: "1080"
+        type: choice
+        options:
+          - "720"
+          - "1080"
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build video matrix
+        id: matrix
+        env:
+          VIDEO_FILTER: ${{ inputs.video_filter }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          rows=[]
+          filt=os.environ.get('VIDEO_FILTER','all').strip()
+          with open('research/aetherqor/videos.psv', encoding='utf-8') as f:
+              for raw in f:
+                  line=raw.strip()
+                  if not line or line.startswith('#'):
+                      continue
+                  slug,url,topic=line.split('|',2)
+                  if filt != 'all' and slug != filt:
+                      continue
+                  rows.append({'slug':slug,'url':url,'topic':topic})
+          if not rows:
+              raise SystemExit(f'No videos matched filter: {filt}')
+          matrix=json.dumps({'include':rows}, separators=(',',':'))
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out:
+              out.write('matrix='+matrix+'\n')
+          print(matrix)
+          PY
+
+  process:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Process tutorial second-by-second
+        shell: powershell
+        env:
+          VIDEO_URL: ${{ matrix.url }}
+          VIDEO_SLUG: ${{ matrix.slug }}
+          VIDEO_TOPIC: ${{ matrix.topic }}
+          VIDEO_BROWSER: ${{ inputs.browser }}
+          VIDEO_MAX_HEIGHT: ${{ inputs.max_height }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'aetherqor-video'
+          & .\tools\process-aetherqor-video.ps1 `
+            -Url $env:VIDEO_URL `
+            -Slug $env:VIDEO_SLUG `
+            -Topic $env:VIDEO_TOPIC `
+            -Browser $env:VIDEO_BROWSER `
+            -OutputRoot $out `
+            -FrameFps 1 `
+            -HighDetailFps 4 `
+            -MaxHeight ([int]$env:VIDEO_MAX_HEIGHT) `
+            -HighDetailMaxSeconds 360
+
+      - name: Upload research artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherqor-${{ matrix.slug }}-${{ github.run_number }}
+          path: ${{ runner.temp }}\aetherqor-video\${{ matrix.slug }}
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
+
+      - name: Clean local result after upload
+        if: always()
+        shell: powershell
+        env:
+          VIDEO_SLUG: ${{ matrix.slug }}
+        run: |
+          $path = Join-Path (Join-Path $env:RUNNER_TEMP 'aetherqor-video') $env:VIDEO_SLUG
+          if (Test-Path $path) { Remove-Item $path -Recurse -Force }
