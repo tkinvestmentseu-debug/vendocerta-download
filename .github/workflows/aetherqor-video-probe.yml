@@ -29,23 +29,17 @@ jobs:
         run: |
           mkdir -p out logs
           docker run --name bgutil-provider -d --init --network host brainicism/bgutil-ytdlp-pot-provider:latest
-          ready=0
-          for i in $(seq 1 30); do
-            if curl -g -fsS 'http://[::1]:4416/' >/dev/null 2>&1; then ready=1; echo ipv6 > out/provider_endpoint.txt; break; fi
-            if curl -fsS 'http://127.0.0.1:4416/' >/dev/null 2>&1; then ready=1; echo ipv4 > out/provider_endpoint.txt; break; fi
-            if ! docker ps --format '{{.Names}}' | grep -qx bgutil-provider; then break; fi
-            sleep 1
-          done
+          sleep 3
           docker ps -a > logs/docker_ps.txt
           docker logs bgutil-provider > logs/provider_start.log 2>&1 || true
-          if [ "$ready" -ne 1 ]; then echo 'PO provider not reachable'; cat logs/provider_start.log; exit 1; fi
+          cat logs/provider_start.log
+          if ! docker ps --format '{{.Names}}' | grep -qx bgutil-provider; then exit 1; fi
 
       - name: Download test clip with PO-token provider
         run: |
           mkdir -p out/frames out/meta logs
           VIDEO_URL='https://www.youtube.com/watch?v=3bw2SnKQhwA'
-          if grep -q ipv6 out/provider_endpoint.txt; then BASE_URL='http://[::1]:4416'; else BASE_URL='http://127.0.0.1:4416'; fi
-          POT_ARGS="youtubepot-bgutilhttp:base_url=$BASE_URL"
+          POT_ARGS='youtubepot-bgutilhttp:base_url=http://localhost:4416'
           yt-dlp -v --js-runtimes node --extractor-args "$POT_ARGS" -J --skip-download "$VIDEO_URL" > out/meta/info.json 2>logs/meta.err || true
           if yt-dlp -v --js-runtimes node --extractor-args "$POT_ARGS" --download-sections '*00:00:00-00:02:00' --force-keyframes-at-cuts --write-auto-subs --write-subs --sub-langs 'en.*,en' --merge-output-format mp4 -f 'bestvideo[height<=720]+bestaudio/best[height<=720]/18' -o 'out/source.%(ext)s' "$VIDEO_URL" >logs/download.out 2>logs/download.err; then
             echo 'yt-dlp+bgutil-http-po-token' > out/method.txt
