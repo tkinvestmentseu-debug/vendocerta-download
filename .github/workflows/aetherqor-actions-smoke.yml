@@ -1,0 +1,12 @@
+name: AETHERQOR Actions Smoke
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo AETHERQOR_ACTIONS_OK
