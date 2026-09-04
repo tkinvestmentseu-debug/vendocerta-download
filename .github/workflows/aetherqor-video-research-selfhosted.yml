@@ -29,6 +29,10 @@ on:
           - "720"
           - "1080"
 
+concurrency:
+  group: aetherqor-video-research
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -43,13 +47,20 @@ jobs:
       - name: Build video matrix
         id: matrix
         env:
-          VIDEO_FILTER: ${{ inputs.video_filter || 'all' }}
+          INPUT_VIDEO_FILTER: ${{ inputs.video_filter || '' }}
         shell: bash
         run: |
           python - <<'PY'
-          import json, os
+          import json, os, re
+          filt=(os.environ.get('INPUT_VIDEO_FILTER') or '').strip()
+          if not filt:
+              try:
+                  txt=open('research/aetherqor/run.trigger',encoding='utf-8').read()
+                  m=re.search(r'^MODE=(.+)$',txt,re.M)
+                  filt=m.group(1).strip() if m else 'all'
+              except FileNotFoundError:
+                  filt='all'
           rows=[]
-          filt=os.environ.get('VIDEO_FILTER','all').strip()
           with open('research/aetherqor/videos.psv', encoding='utf-8') as f:
               for raw in f:
                   line=raw.strip()
@@ -64,6 +75,7 @@ jobs:
           matrix=json.dumps({'include':rows}, separators=(',',':'))
           with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as out:
               out.write('matrix='+matrix+'\n')
+          print('filter=',filt)
           print(matrix)
           PY
 
@@ -80,7 +92,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Process tutorial second-by-second
-        shell: powershell
+        shell: pwsh
         env:
           VIDEO_URL: ${{ matrix.url }}
           VIDEO_SLUG: ${{ matrix.slug }}
@@ -88,6 +100,9 @@ jobs:
           VIDEO_BROWSER: chrome
           VIDEO_MAX_HEIGHT: ${{ inputs.max_height || '1080' }}
         run: |
+          if (Get-Variable PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
           $out = Join-Path $env:RUNNER_TEMP 'aetherqor-video'
           & .\tools\process-aetherqor-video.ps1 `
             -Url $env:VIDEO_URL `
@@ -112,7 +127,7 @@ jobs:
 
       - name: Clean local result after upload
         if: always()
-        shell: powershell
+        shell: pwsh
         env:
           VIDEO_SLUG: ${{ matrix.slug }}
         run: |
