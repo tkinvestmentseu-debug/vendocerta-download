@@ -1,0 +1,63 @@
+name: AETHERQOR Sync Final Pack V2
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'research/aetherqor/final_v2/SYNC.trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sync research pack into AetherqorFoundry
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $source = Join-Path $env:GITHUB_WORKSPACE 'research\aetherqor\final_v2'
+          $foundry = 'D:\AetherqorFoundry'
+          $dest = Join-Path $foundry 'research\aetherqor\final_v2'
+
+          if (-not (Test-Path $foundry)) {
+            throw "AetherqorFoundry not found at $foundry"
+          }
+          if (-not (Test-Path $source)) {
+            throw "Final V2 source pack not found at $source"
+          }
+
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          Copy-Item -Path (Join-Path $source '*') -Destination $dest -Recurse -Force
+
+          $required = @(
+            'README.md',
+            'AETHERQOR_MEGA_PROMPT_VIDEO_GROUNDED_V2.md',
+            'AETHERQOR_13_LEKCJI_VIDEO_GROUNDED_V2.md',
+            'AETHERQOR_10_TUTORIALS_RESEARCH_NOTES_V2.md',
+            'AETHERQOR_SOURCE_MATRIX_VIDEO_GROUNDED_V2.csv',
+            'AETHERQOR_AUTONOMOUS_CLOSURE_PLAN_V2.md'
+          )
+
+          foreach ($name in $required) {
+            $p = Join-Path $dest $name
+            if (-not (Test-Path $p)) { throw "Missing synced file: $p" }
+          }
+
+          $status = @(
+            'AETHERQOR FINAL V2 SYNC: PASS',
+            ('UTC=' + [DateTime]::UtcNow.ToString('o')),
+            ('SOURCE_SHA=' + $env:GITHUB_SHA),
+            ('DEST=' + $dest),
+            ('FILES=' + $required.Count)
+          )
+          $status | Set-Content -Path (Join-Path $dest '_SYNC_OK.txt') -Encoding UTF8
+
+          Write-Host 'AETHERQOR FINAL V2 SYNC: PASS' -ForegroundColor Green
+          Get-ChildItem $dest | Select-Object Name,Length,LastWriteTime | Format-Table -AutoSize
