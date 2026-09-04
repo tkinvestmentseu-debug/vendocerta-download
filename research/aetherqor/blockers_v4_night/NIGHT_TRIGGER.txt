@@ -1,0 +1,4 @@
+started=2026-09-04T21:24:00Z
+reason=ultra-research-five-measured-blockers-direct-to-disk
+mode=all
+local_root=D:\AetherqorFoundry\research\blockers_v4_night\ULTRA_RESEARCH_2026-09-04_NIGHT
