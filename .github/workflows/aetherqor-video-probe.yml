@@ -27,12 +27,16 @@ jobs:
 
       - name: Start PO-token provider
         run: |
-          docker run --name bgutil-provider -d --init -p 4416:4416 brainicism/bgutil-ytdlp-pot-provider:latest --host 0.0.0.0
-          for i in $(seq 1 20); do
-            if curl -fsS http://127.0.0.1:4416 >/dev/null 2>&1 || curl -fsS http://127.0.0.1:4416/ping >/dev/null 2>&1; then break; fi
+          docker run --name bgutil-provider -d --init --network host brainicism/bgutil-ytdlp-pot-provider:latest
+          ready=0
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4416 >/dev/null 2>&1; then ready=1; break; fi
+            if ! docker ps --format '{{.Names}}' | grep -qx bgutil-provider; then break; fi
             sleep 1
           done
-          docker ps
+          docker ps -a
+          docker logs bgutil-provider || true
+          if [ "$ready" -ne 1 ]; then echo 'PO provider not reachable'; exit 1; fi
 
       - name: Download test clip with PO-token provider
         run: |
@@ -55,6 +59,7 @@ jobs:
           find out/frames -type f | wc -l > out/frame_count.txt
 
       - name: Upload artifact
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: aetherqor-video-probe-3bw2SnKQhwA
