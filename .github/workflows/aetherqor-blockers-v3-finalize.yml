@@ -1,0 +1,117 @@
+name: AETHERQOR Blockers V3 Finalize Claude Report
+
+on:
+  workflow_run:
+    workflows: ["AETHERQOR Blockers V3 Video Research"]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download metadata artifacts from completed video run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: aqv3-*-meta
+          path: handoff/meta
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Download 3x3 review sheets from completed video run
+        uses: actions/download-artifact@v4
+        with:
+          pattern: aqv3-*-sheets
+          path: handoff/sheets
+          merge-multiple: false
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Build final status and artifact index
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          REPO: ${{ github.repository }}
+          RUN_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: |
+          New-Item -ItemType Directory -Path handoff -Force | Out-Null
+          Copy-Item research/aetherqor/blockers_v3/CLAUDE_VIDEO_HANDOFF.md handoff/CLAUDE_VIDEO_HANDOFF.md -Force
+          Copy-Item research/aetherqor/blockers_v3/videos.psv handoff/videos.psv -Force
+
+          $jobsJson = gh api "repos/$env:REPO/actions/runs/$env:RUN_ID/jobs?per_page=100"
+          $jobs = $jobsJson | ConvertFrom-Json
+          $artJson = gh api "repos/$env:REPO/actions/runs/$env:RUN_ID/artifacts?per_page=100"
+          $arts = ($artJson | ConvertFrom-Json).artifacts
+
+          $rows = New-Object System.Collections.Generic.List[string]
+          $rows.Add('# AETHERQOR Blockers V3 - FINAL VIDEO STATUS')
+          $rows.Add('')
+          $rows.Add("Video workflow run: $env:RUN_ID")
+          $rows.Add("Workflow conclusion: $env:RUN_CONCLUSION")
+          $rows.Add('')
+          $rows.Add('| slug | job | meta | sheets | frames 1fps | highdetail 4fps |')
+          $rows.Add('|---|---|---:|---:|---:|---:|')
+
+          $slugs = Get-Content research/aetherqor/blockers_v3/videos.psv | Where-Object { $_ -and -not $_.StartsWith('#') } | ForEach-Object { ($_ -split '\|',3)[0] }
+          $complete = 0
+          foreach($slug in $slugs){
+            $job = @($jobs.jobs | Where-Object { $_.name -like "process ($slug,*" }) | Select-Object -First 1
+            $jobState = if($job){ [string]$job.conclusion } else { 'missing' }
+            $meta = [bool](@($arts | Where-Object name -eq "aqv3-$slug-meta").Count)
+            $sheets = [bool](@($arts | Where-Object name -eq "aqv3-$slug-sheets").Count)
+            $frames = [bool](@($arts | Where-Object name -eq "aqv3-$slug-frames").Count)
+            $high = [bool](@($arts | Where-Object name -eq "aqv3-$slug-highdetail").Count)
+            if($jobState -eq 'success' -and $meta -and $sheets -and $frames){ $complete++ }
+            $rows.Add("| $slug | $jobState | $meta | $sheets | $frames | $high |")
+          }
+          $rows.Add('')
+          $rows.Add("Complete video sets: $complete / $($slugs.Count)")
+          $rows.Add('')
+          if($complete -eq $slugs.Count){
+            $rows.Add('STATUS: COMPLETE_11_OF_11')
+          } else {
+            $rows.Add('STATUS: INCOMPLETE - use failed job logs and rerun only missing slugs before implementation.')
+          }
+          $rows | Set-Content handoff/FINAL_STATUS.md -Encoding UTF8
+
+          $idx = New-Object System.Collections.Generic.List[string]
+          $idx.Add('# GitHub Actions artifact index')
+          $idx.Add('')
+          $idx.Add("Source run: https://github.com/$env:REPO/actions/runs/$env:RUN_ID")
+          $idx.Add('')
+          $idx.Add('| artifact | size bytes | direct GitHub page |')
+          $idx.Add('|---|---:|---|')
+          foreach($a in ($arts | Sort-Object name)){
+            $idx.Add("| $($a.name) | $($a.size_in_bytes) | https://github.com/$env:REPO/actions/runs/$env:RUN_ID/artifacts/$($a.id) |")
+          }
+          $idx | Set-Content handoff/ARTIFACT_INDEX.md -Encoding UTF8
+
+          $manifest = [ordered]@{
+            source_run_id = [long]$env:RUN_ID
+            source_conclusion = $env:RUN_CONCLUSION
+            expected_video_count = $slugs.Count
+            complete_video_sets = $complete
+            generated_utc = [DateTime]::UtcNow.ToString('o')
+            contains = @('CLAUDE_VIDEO_HANDOFF.md','FINAL_STATUS.md','ARTIFACT_INDEX.md','videos.psv','meta/*','sheets/*')
+            raw_frames_note = 'Raw 1fps and highdetail 4fps remain as per-video GitHub Actions artifacts listed in ARTIFACT_INDEX.md to avoid duplicating multi-gigabyte payloads.'
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content handoff/REPORT_MANIFEST.json -Encoding UTF8
+
+      - name: Upload final Claude Code report package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_CLAUDE_VIDEO_REPORT_${{ github.event.workflow_run.id }}
+          path: handoff
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 6
