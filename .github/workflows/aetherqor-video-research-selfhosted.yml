@@ -134,12 +134,59 @@ jobs:
             -MaxHeight ([int]$env:VIDEO_MAX_HEIGHT) `
             -HighDetailMaxSeconds 360
 
-      - name: Upload research artifact
+      - name: Prepare compact metadata package
+        if: always()
+        shell: pwsh
+        env:
+          VIDEO_SLUG: ${{ matrix.slug }}
+        run: |
+          $root = Join-Path (Join-Path $env:RUNNER_TEMP 'aetherqor-video') $env:VIDEO_SLUG
+          $meta = Join-Path $env:RUNNER_TEMP 'aetherqor-upload-meta'
+          if (Test-Path $meta) { Remove-Item $meta -Recurse -Force }
+          New-Item -ItemType Directory -Path $meta -Force | Out-Null
+          foreach ($name in @('manifest.json','frame_index.csv','sheet_index.csv','high_detail_index.csv','duration_seconds.txt','transcript.txt','transcript_source.txt','TRANSCRIPT_MISSING.txt','source.info.json')) {
+            $p = Join-Path $root $name
+            if (Test-Path $p) { Copy-Item $p $meta -Force }
+          }
+          $logs = Join-Path $root 'logs'
+          if (Test-Path $logs) { Copy-Item $logs (Join-Path $meta 'logs') -Recurse -Force }
+
+      - name: Upload metadata and transcript
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: aetherqor-${{ matrix.slug }}-${{ github.run_number }}
-          path: ${{ runner.temp }}\aetherqor-video\${{ matrix.slug }}
+          name: aetherqor-${{ matrix.slug }}-meta-${{ github.run_number }}
+          path: ${{ runner.temp }}\aetherqor-upload-meta
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
+
+      - name: Upload 3x3 contact sheets
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherqor-${{ matrix.slug }}-sheets-${{ github.run_number }}
+          path: ${{ runner.temp }}\aetherqor-video\${{ matrix.slug }}\contact_sheets_3x3
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
+
+      - name: Upload 1fps frames
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherqor-${{ matrix.slug }}-frames-${{ github.run_number }}
+          path: ${{ runner.temp }}\aetherqor-video\${{ matrix.slug }}\frames_1fps
+          if-no-files-found: warn
+          compression-level: 6
+          retention-days: 7
+
+      - name: Upload 4fps high-detail frames
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aetherqor-${{ matrix.slug }}-highdetail-${{ github.run_number }}
+          path: ${{ runner.temp }}\aetherqor-video\${{ matrix.slug }}\high_detail_4fps
           if-no-files-found: warn
           compression-level: 6
           retention-days: 7
@@ -152,3 +199,5 @@ jobs:
         run: |
           $path = Join-Path (Join-Path $env:RUNNER_TEMP 'aetherqor-video') $env:VIDEO_SLUG
           if (Test-Path $path) { Remove-Item $path -Recurse -Force }
+          $meta = Join-Path $env:RUNNER_TEMP 'aetherqor-upload-meta'
+          if (Test-Path $meta) { Remove-Item $meta -Recurse -Force }
