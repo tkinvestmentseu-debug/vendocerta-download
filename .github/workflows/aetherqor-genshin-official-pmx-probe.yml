@@ -1,0 +1,33 @@
+name: AETHERQOR Official Genshin PMX Probe
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/blockers_v3/GENSHIN_PMX_TRIGGER.txt'
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download official miHoYo-distributed Xiao MMD archive and count PMX triangles
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p out/model
+          URL='https://s1.hdslb.com/bfs/game-static/web/caster/static/script/vue/85ad0a56a99f29a85f0040443878b7a5/1.zip'
+          curl -L --fail --retry 3 "$URL" -o out/xiao_official.zip
+          unzip -o out/xiao_official.zip -d out/model
+          find out/model -type f -iname '*.pmx' -print0 | xargs -0 python tools/probe_pmx_triangles.py > out/pmx_triangle_counts.json
+          printf '%s\n' 'SOURCE_CLASS=OFFICIAL_MMD_RELEASE_REFERENCE_NOT_RUNTIME_CAPTURE' > out/README.txt
+          printf '%s\n' "SOURCE_URL=$URL" >> out/README.txt
+          cat out/pmx_triangle_counts.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_GENSHIN_OFFICIAL_PMX_COUNTS
+          path: |
+            out/pmx_triangle_counts.json
+            out/README.txt
+          retention-days: 14
