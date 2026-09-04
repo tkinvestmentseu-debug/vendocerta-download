@@ -1,0 +1,138 @@
+name: AETHERQOR Blockers V3 Video Research
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/blockers_v3/VIDEO_TRIGGER.txt'
+  workflow_dispatch:
+    inputs:
+      video_filter:
+        description: "all or one slug"
+        required: true
+        default: "all"
+        type: string
+
+concurrency:
+  group: aetherqor-blockers-v3-video
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        name: Build selected video matrix
+        env:
+          FILTER: ${{ inputs.video_filter || 'all' }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          filt=(os.environ.get('FILTER') or 'all').strip()
+          rows=[]
+          with open('research/aetherqor/blockers_v3/videos.psv',encoding='utf-8') as f:
+              for raw in f:
+                  line=raw.strip()
+                  if not line or line.startswith('#'): continue
+                  slug,url,topic=line.split('|',2)
+                  if filt!='all' and slug!=filt: continue
+                  rows.append({'slug':slug,'url':url,'topic':topic})
+          if not rows: raise SystemExit('No videos selected')
+          m=json.dumps({'include':rows},separators=(',',':'))
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as o: o.write('matrix='+m+'\n')
+          print(m)
+          PY
+
+  process:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Process video every second
+        shell: pwsh
+        env:
+          VIDEO_URL: ${{ matrix.url }}
+          VIDEO_SLUG: ${{ matrix.slug }}
+          VIDEO_TOPIC: ${{ matrix.topic }}
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'aetherqor-blockers-v3-video'
+          & .\tools\process-aetherqor-video.ps1 -Url $env:VIDEO_URL -Slug $env:VIDEO_SLUG -Topic $env:VIDEO_TOPIC -Browser chrome -OutputRoot $out -FrameFps 1 -HighDetailFps 4 -MaxHeight 1080 -HighDetailMaxSeconds 480
+
+      - name: Prepare metadata
+        if: always()
+        shell: pwsh
+        env:
+          VIDEO_SLUG: ${{ matrix.slug }}
+        run: |
+          $root=Join-Path (Join-Path $env:RUNNER_TEMP 'aetherqor-blockers-v3-video') $env:VIDEO_SLUG
+          $meta=Join-Path $env:RUNNER_TEMP 'aetherqor-blockers-v3-meta'
+          if(Test-Path $meta){Remove-Item $meta -Recurse -Force}
+          New-Item -ItemType Directory -Path $meta -Force | Out-Null
+          foreach($name in @('manifest.json','frame_index.csv','sheet_index.csv','high_detail_index.csv','duration_seconds.txt','transcript.txt','transcript_source.txt','TRANSCRIPT_MISSING.txt','source.info.json')){
+            $p=Join-Path $root $name
+            if(Test-Path $p){Copy-Item $p $meta -Force}
+          }
+          $logs=Join-Path $root 'logs'
+          if(Test-Path $logs){Copy-Item $logs (Join-Path $meta 'logs') -Recurse -Force}
+
+      - name: Upload meta transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqv3-${{ matrix.slug }}-meta
+          path: ${{ runner.temp }}\aetherqor-blockers-v3-meta
+          retention-days: 14
+          if-no-files-found: warn
+
+      - name: Upload all-second contact sheets
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqv3-${{ matrix.slug }}-sheets
+          path: ${{ runner.temp }}\aetherqor-blockers-v3-video\${{ matrix.slug }}\contact_sheets_3x3
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Upload raw 1fps frames
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqv3-${{ matrix.slug }}-frames
+          path: ${{ runner.temp }}\aetherqor-blockers-v3-video\${{ matrix.slug }}\frames_1fps
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Upload critical 4fps frames
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqv3-${{ matrix.slug }}-highdetail
+          path: ${{ runner.temp }}\aetherqor-blockers-v3-video\${{ matrix.slug }}\high_detail_4fps
+          retention-days: 14
+          if-no-files-found: warn
+          compression-level: 6
+
+      - name: Cleanup local result
+        if: always()
+        shell: pwsh
+        env:
+          VIDEO_SLUG: ${{ matrix.slug }}
+        run: |
+          $root=Join-Path (Join-Path $env:RUNNER_TEMP 'aetherqor-blockers-v3-video') $env:VIDEO_SLUG
+          if(Test-Path $root){Remove-Item $root -Recurse -Force}
+          $meta=Join-Path $env:RUNNER_TEMP 'aetherqor-blockers-v3-meta'
+          if(Test-Path $meta){Remove-Item $meta -Recurse -Force}
