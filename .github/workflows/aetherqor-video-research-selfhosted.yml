@@ -1,6 +1,11 @@
 name: AETHERQOR Video Research Self-Hosted
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'research/aetherqor/run.trigger'
   workflow_dispatch:
     inputs:
       video_filter:
@@ -41,7 +46,7 @@ jobs:
       - name: Build video matrix
         id: matrix
         env:
-          VIDEO_FILTER: ${{ inputs.video_filter }}
+          VIDEO_FILTER: ${{ inputs.video_filter || 'all' }}
         shell: bash
         run: |
           python - <<'PY'
@@ -83,8 +88,8 @@ jobs:
           VIDEO_URL: ${{ matrix.url }}
           VIDEO_SLUG: ${{ matrix.slug }}
           VIDEO_TOPIC: ${{ matrix.topic }}
-          VIDEO_BROWSER: ${{ inputs.browser }}
-          VIDEO_MAX_HEIGHT: ${{ inputs.max_height }}
+          VIDEO_BROWSER: ${{ inputs.browser || 'auto' }}
+          VIDEO_MAX_HEIGHT: ${{ inputs.max_height || '1080' }}
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'aetherqor-video'
           & .\tools\process-aetherqor-video.ps1 `
