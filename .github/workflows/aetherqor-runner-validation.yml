@@ -1,0 +1,71 @@
+name: AETHERQOR Runner Validation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'tools/install-aetherqor-runner.ps1'
+      - 'tools/process-aetherqor-video.ps1'
+      - 'research/aetherqor/**'
+      - '.github/workflows/aetherqor-video-research-selfhosted.yml'
+      - '.github/workflows/aetherqor-runner-validation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Parse PowerShell scripts
+        shell: powershell
+        run: |
+          $files = @(
+            'tools\install-aetherqor-runner.ps1',
+            'tools\process-aetherqor-video.ps1'
+          )
+          $failed = $false
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path $file), [ref]$tokens, [ref]$errors)
+            if ($errors.Count -gt 0) {
+              Write-Host "Syntax errors in $file" -ForegroundColor Red
+              $errors | ForEach-Object { Write-Host $_.Message -ForegroundColor Red }
+              $failed = $true
+            } else {
+              Write-Host "PASS $file" -ForegroundColor Green
+            }
+          }
+          if ($failed) { throw 'PowerShell syntax validation failed.' }
+
+      - name: Validate video research list
+        shell: powershell
+        run: |
+          $rows = Get-Content 'research\aetherqor\videos.psv' | Where-Object { $_.Trim() -and -not $_.StartsWith('#') }
+          if ($rows.Count -ne 10) { throw "Expected exactly 10 tutorials, got $($rows.Count)." }
+          $slugs = @{}
+          foreach ($row in $rows) {
+            $parts = $row.Split('|',3)
+            if ($parts.Count -ne 3) { throw "Invalid row: $row" }
+            $slug,$url,$topic = $parts
+            if ($slugs.ContainsKey($slug)) { throw "Duplicate slug: $slug" }
+            $slugs[$slug] = $true
+            if ($url -notmatch '^https://www\.youtube\.com/watch\?v=[A-Za-z0-9_-]{11}$') { throw "Invalid YouTube URL: $url" }
+            if ([string]::IsNullOrWhiteSpace($topic)) { throw "Missing topic for $slug" }
+          }
+          Write-Host "PASS: 10 unique tutorials validated." -ForegroundColor Green
+
+      - name: Validate self-hosted workflow contract
+        shell: powershell
+        run: |
+          $wf = Get-Content '.github\workflows\aetherqor-video-research-selfhosted.yml' -Raw
+          foreach ($required in @('workflow_dispatch','self-hosted','aetherqor-video','max-parallel: 1','process-aetherqor-video.ps1','actions/upload-artifact@v4')) {
+            if ($wf -notlike "*$required*") { throw "Workflow missing required token: $required" }
+          }
+          Write-Host 'PASS: self-hosted workflow contract validated.' -ForegroundColor Green
