@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'research/aetherqor/probe.trigger'
   workflow_dispatch:
 
 permissions:
