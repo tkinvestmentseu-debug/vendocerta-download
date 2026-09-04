@@ -1,0 +1,80 @@
+name: AETHERQOR Sync Final V2
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/final_v2/SYNC_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-sync-final-v2
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Sync pack to AetherqorFoundry and Downloads
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:GITHUB_WORKSPACE 'research\aetherqor\final_v2'
+          $dst = 'D:\AetherqorFoundry\research\aetherqor\final_v2'
+          $downloads = Join-Path $env:USERPROFILE 'Downloads'
+          $zip = Join-Path $downloads 'AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2_2026-09-04.zip'
+
+          $required = @(
+            'README.md',
+            'AETHERQOR_MEGA_PROMPT_VIDEO_GROUNDED_V2.md',
+            'AETHERQOR_13_LEKCJI_VIDEO_GROUNDED_V2.md',
+            'AETHERQOR_10_TUTORIALS_RESEARCH_NOTES_V2.md',
+            'AETHERQOR_SOURCE_MATRIX_VIDEO_GROUNDED_V2.csv',
+            'AETHERQOR_AUTONOMOUS_CLOSURE_PLAN_V2.md'
+          )
+
+          foreach ($name in $required) {
+            $p = Join-Path $src $name
+            if (!(Test-Path $p)) { throw "Missing required final-v2 file: $name" }
+          }
+
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          New-Item -ItemType Directory -Force -Path $downloads | Out-Null
+
+          Get-ChildItem -Path $dst -Force -ErrorAction SilentlyContinue | Remove-Item -Recurse -Force
+          Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force
+
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path (Join-Path $src '*') -DestinationPath $zip -CompressionLevel Optimal -Force
+
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $zip).Hash
+          $marker = Join-Path $dst '_SYNC_OK.txt'
+          @(
+            'AETHERQOR_FINAL_V2_SYNC=OK',
+            "UTC=$([DateTime]::UtcNow.ToString('o'))",
+            "GITHUB_SHA=$env:GITHUB_SHA",
+            "ZIP=$zip",
+            "ZIP_SHA256=$hash",
+            "FILES=$($required.Count)"
+          ) | Set-Content -Path $marker -Encoding UTF8
+
+          Copy-Item -Path $marker -Destination (Join-Path $env:GITHUB_WORKSPACE '_SYNC_OK.txt') -Force
+          Copy-Item -Path $zip -Destination (Join-Path $env:GITHUB_WORKSPACE 'AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2_2026-09-04.zip') -Force
+
+          Write-Host "SYNC_OK"
+          Write-Host "Destination: $dst"
+          Write-Host "ZIP: $zip"
+          Write-Host "SHA256: $hash"
+
+      - name: Upload final pack artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2
+          path: |
+            AETHERQOR_VIDEO_GROUNDED_CLOSURE_PACK_V2_2026-09-04.zip
+            _SYNC_OK.txt
+          retention-days: 14
+          if-no-files-found: error
