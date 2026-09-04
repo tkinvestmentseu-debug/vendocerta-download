@@ -1,4 +1,4 @@
 AETHERQOR_VIDEO_RESEARCH_RUN=1
 MODE=hair_cards_pixelica_2024
-REQUESTED_UTC=2026-09-04T10:07:00Z
-PURPOSE=smoke_test_video_separated_from_subtitles
+REQUESTED_UTC=2026-09-04T10:15:00Z
+PURPOSE=retry_with_split_downloadable_artifacts
