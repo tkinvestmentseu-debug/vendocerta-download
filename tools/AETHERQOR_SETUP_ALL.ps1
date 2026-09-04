@@ -16,12 +16,21 @@ function Download([string]$url,[string]$dst){
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null
   Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $dst -Headers @{'User-Agent'='AETHERQOR-Setup'}
 }
-function Add-Path([string]$p){ if($env:PATH -notlike "*$p*"){ $env:PATH = "$p;$env:PATH" } }
 
 $RepoUrl = "https://github.com/$Repo"
 $YouTubeProbe = 'https://www.youtube.com/watch?v=3bw2SnKQhwA'
 
-Step '0/9  Preparing folders'
+Step '0/9  Preparing folders and forcing Chrome'
+$ChromeExe = @(
+  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
+  "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
+  "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
+) | Where-Object { Test-Path $_ } | Select-Object -First 1
+if(-not $ChromeExe){ throw 'Google Chrome was not found. Install Chrome first.' }
+$env:BROWSER = $ChromeExe
+$env:GH_BROWSER = $ChromeExe
+Ok "Chrome forced: $ChromeExe"
+
 try { New-Item -ItemType Directory -Force -Path $RunnerRoot | Out-Null }
 catch { $RunnerRoot = Join-Path $env:LOCALAPPDATA 'AETHERQOR_GitHubRunner'; New-Item -ItemType Directory -Force -Path $RunnerRoot | Out-Null }
 $Tools = Join-Path $RunnerRoot 'tools'
@@ -56,7 +65,7 @@ $authOk = $false
 & $GhExe auth status -h github.com *> $null
 if($LASTEXITCODE -eq 0){ $authOk = $true }
 if(-not $authOk){
-  Write-Host 'GitHub will open a browser login/device page. Use CHROME and approve the login.' -ForegroundColor Yellow
+  Write-Host 'GitHub login will open in CHROME. Approve the device/browser login once.' -ForegroundColor Yellow
   & $GhExe auth login -h github.com -p https -w
   if($LASTEXITCODE -ne 0){ throw 'GitHub CLI login failed.' }
 }
@@ -89,12 +98,6 @@ Remove-Item $ffZip -Force -ErrorAction SilentlyContinue
 Ok 'FFmpeg ready'
 
 Step '5/9  Detecting Chrome profile for YouTube'
-$ChromeExe = @(
-  "$env:ProgramFiles\Google\Chrome\Application\chrome.exe",
-  "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe",
-  "$env:LOCALAPPDATA\Google\Chrome\Application\chrome.exe"
-) | Where-Object { Test-Path $_ } | Select-Object -First 1
-if(-not $ChromeExe){ throw 'Google Chrome was not found. Install Chrome first.' }
 $ChromeUserData = Join-Path $env:LOCALAPPDATA 'Google\Chrome\User Data'
 $profiles = @('Default')
 if(Test-Path $ChromeUserData){
@@ -114,12 +117,12 @@ foreach($profile in $profiles){
   }
 }
 if(-not $chromePassed){
-  Warn 'Chrome cookie test did not pass. This may be Chrome App-Bound cookie encryption or no YouTube login. The workflow will still try local-IP download without browser cookies after the Chrome attempt.'
+  Warn 'Chrome cookie test did not pass. The workflow will still use your local residential IP and will try a no-cookie download only after the Chrome attempt. No Edge/Firefox fallback is used by this setup.'
 }
 Set-Content -Path (Join-Path $RunnerRoot 'chrome-cookie-spec.txt') -Value $ChromeCookieSpec -Encoding ASCII
 Set-Content -Path (Join-Path $RunnerRoot 'browser.txt') -Value 'chrome' -Encoding ASCII
 
-Step '6/9  Installing GitHub Actions runner'
+Step '6/9  Installing and registering GitHub Actions runner automatically'
 $config = Join-Path $RunnerRoot 'config.cmd'
 if(-not (Test-Path $config)){
   $rel = Invoke-RestMethod -Headers @{'User-Agent'='AETHERQOR-Setup'} -Uri 'https://api.github.com/repos/actions/runner/releases/latest'
@@ -137,7 +140,8 @@ $needsConfig = -not (Test-Path $runnerJson)
 if(-not $needsConfig){
   try {
     $r = Get-Content $runnerJson -Raw | ConvertFrom-Json
-    if([string]$r.gitHubUrl -notlike "$RepoUrl*"){ $needsConfig = $true }
+    $currentUrl = [string]$r.gitHubUrl
+    if($currentUrl -notlike "$RepoUrl*"){ $needsConfig = $true }
   } catch { $needsConfig = $true }
 }
 if($needsConfig -and (Test-Path $runnerJson)){
@@ -183,7 +187,7 @@ Ok 'Runner start requested'
 Step '9/9  Ensuring AETHERQOR video workflow is queued'
 $active = $false
 try {
-  $json = & $GhExe run list --repo $Repo --workflow 'aetherqor-video-research-selfhosted.yml' --limit 10 --json status,conclusion,databaseId 2>$null
+  $json = & $GhExe run list --repo $Repo --workflow 'aetherqor-video-research-selfhosted.yml' --limit 10 --json 'status,conclusion,databaseId' 2>$null
   if($LASTEXITCODE -eq 0 -and $json){
     $runs = $json | ConvertFrom-Json
     $active = @($runs | Where-Object { $_.status -in @('queued','in_progress','waiting','pending') }).Count -gt 0
@@ -200,7 +204,7 @@ Write-Host 'AETHERQOR SETUP COMPLETE' -ForegroundColor Green
 Write-Host "Repo: $Repo"
 Write-Host "Runner root: $RunnerRoot"
 Write-Host 'Runner label: aetherqor-video'
-Write-Host 'Browser policy: CHROME ONLY'
+Write-Host 'Browser policy: CHROME'
 Write-Host "Chrome cookie source: $ChromeCookieSpec"
 Write-Host 'The runner window may be minimized. Keep Windows signed in while research runs.'
 Write-Host '============================================================' -ForegroundColor Green
