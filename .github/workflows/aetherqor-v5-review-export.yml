@@ -1,0 +1,75 @@
+name: AETHERQOR V5 Visual Review Export
+
+on:
+  workflow_run:
+    workflows: ["AETHERQOR Blockers V5 Architecture Ultra Research"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LOCAL_ROOT: 'D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05'
+
+jobs:
+  export_review:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build visual review bundle from local V5 evidence
+        shell: pwsh
+        run: |
+          $src = $env:LOCAL_ROOT
+          $bundle = Join-Path $env:RUNNER_TEMP 'aetherqor-v5-chatgpt-review'
+          if(Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+
+          foreach($name in @('QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V5_RESEARCH_HANDOFF.md','FINAL_STATUS.md','LOCAL_READY.md','videos.psv')) {
+            $p = Join-Path $src $name
+            if(Test-Path $p) { Copy-Item $p $bundle -Force }
+          }
+
+          $videosRoot = Join-Path $src 'videos'
+          $outVideos = Join-Path $bundle 'videos'
+          New-Item -ItemType Directory -Path $outVideos -Force | Out-Null
+
+          if(Test-Path $videosRoot) {
+            foreach($dir in @(Get-ChildItem $videosRoot -Directory -ErrorAction SilentlyContinue)) {
+              $dst = Join-Path $outVideos $dir.Name
+              New-Item -ItemType Directory -Path $dst -Force | Out-Null
+              foreach($name in @('manifest.json','frame_index.csv','sheet_index.csv','high_detail_index.csv','duration_seconds.txt','transcript.txt','transcript_source.txt','selected_source_url.txt','_DONE.txt')) {
+                $p = Join-Path $dir.FullName $name
+                if(Test-Path $p) { Copy-Item $p $dst -Force }
+              }
+              $sheets = Join-Path $dir.FullName 'contact_sheets_3x3'
+              if(Test-Path $sheets) { Copy-Item $sheets (Join-Path $dst 'contact_sheets_3x3') -Recurse -Force }
+            }
+          }
+
+          $sheetCount = @(Get-ChildItem $bundle -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $doneCount = @(Get-ChildItem $videosRoot -Recurse -Filter '_DONE.txt' -File -ErrorAction SilentlyContinue).Count
+          @(
+            '# AETHERQOR V5 CHATGPT VISUAL REVIEW EXPORT',
+            '',
+            "Source: $src",
+            "Video sets with _DONE: $doneCount",
+            "3x3 contact sheet JPG files: $sheetCount",
+            '',
+            'This bundle intentionally contains contact sheets + transcripts/indexes, not all raw 1fps frames.',
+            'Use sheets sequentially to identify critical time ranges; export raw frames separately only where needed.'
+          ) | Set-Content (Join-Path $bundle 'REVIEW_EXPORT_STATUS.md') -Encoding UTF8
+
+          if($sheetCount -le 0) { throw 'No V5 contact sheets found for review export.' }
+          Write-Host "V5_REVIEW_EXPORT_READY sheets=$sheetCount done=$doneCount"
+
+      - name: Upload ChatGPT visual review bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V5_CHATGPT_VISUAL_REVIEW
+          path: ${{ runner.temp }}\aetherqor-v5-chatgpt-review
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 6
