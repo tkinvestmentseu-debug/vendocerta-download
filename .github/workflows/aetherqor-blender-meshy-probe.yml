@@ -6,6 +6,9 @@ on:
       - 'research/aetherqor/blender_meshy_probe/TRIGGER.txt'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 concurrency:
   group: aetherqor-blender-meshy-probe
   cancel-in-progress: true
@@ -16,6 +19,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Probe local Blender and Meshy pipeline without exposing secrets
         shell: pwsh
@@ -30,7 +35,7 @@ jobs:
             'C:\Program Files\Blender Foundation\Blender 5.0\blender.exe'
           )
           $blender = $blenderCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
-          if (-not $blender) {
+          if (-not $blender -and (Test-Path 'C:\Program Files\Blender Foundation')) {
             $blender = Get-ChildItem 'C:\Program Files\Blender Foundation' -Recurse -Filter blender.exe -File -ErrorAction SilentlyContinue |
               Sort-Object FullName -Descending |
               Select-Object -First 1 -ExpandProperty FullName
@@ -59,12 +64,13 @@ jobs:
           foreach ($root in $pipelineRoots) {
             $meshyScripts += Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
               Where-Object { $_.Name -match 'meshy' -and $_.Extension -in @('.ps1','.py','.js','.json','.md') } |
-              Select-Object -First 50 -ExpandProperty FullName
+              Select-Object -First 100 -ExpandProperty FullName
           }
           $meshyScripts = @($meshyScripts | Select-Object -Unique)
 
           $report = [ordered]@{
             TimestampUtc = [DateTime]::UtcNow.ToString('o')
+            GitHubRunId = $env:GITHUB_RUN_ID
             Machine = $env:COMPUTERNAME
             RunnerName = $env:RUNNER_NAME
             RunnerTemp = $env:RUNNER_TEMP
@@ -83,6 +89,8 @@ jobs:
           $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
 
           @(
+            "TimestampUtc=$($report.TimestampUtc)",
+            "GitHubRunId=$($report.GitHubRunId)",
             "Machine=$($report.Machine)",
             "RunnerName=$($report.RunnerName)",
             "BlenderFound=$($report.BlenderFound)",
@@ -94,10 +102,29 @@ jobs:
             "MeshyScriptCount=$($report.MeshyScriptCount)"
           ) | Set-Content -LiteralPath $txtPath -Encoding UTF8
 
+          "BLENDER_FOUND=$([string]$report.BlenderFound)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "=== AETHERQOR PROBE ==="
           Get-Content -LiteralPath $txtPath
 
-          if (-not $blender) { throw 'Blender not found on self-hosted runner.' }
+      - name: Publish latest probe result into repository
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $src = Join-Path $env:RUNNER_TEMP 'aetherqor-blender-meshy-probe\probe.txt'
+          $dstDir = Join-Path $env:GITHUB_WORKSPACE 'research\aetherqor\blender_meshy_probe'
+          $dst = Join-Path $dstDir 'LATEST_PROBE.txt'
+          New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
+          if (Test-Path -LiteralPath $src) { Copy-Item -LiteralPath $src -Destination $dst -Force }
+          else { "PROBE_FAILED_BEFORE_REPORT=true`nTimestampUtc=$([DateTime]::UtcNow.ToString('o'))" | Set-Content -LiteralPath $dst -Encoding UTF8 }
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'research/aetherqor/blender_meshy_probe/LATEST_PROBE.txt'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) {
+            git commit -m 'Publish latest Aetherqor Blender Meshy probe'
+            git push origin HEAD:main
+          }
 
       - name: Upload probe report
         if: always()
@@ -106,4 +133,9 @@ jobs:
           name: AETHERQOR_BLENDER_MESHY_PROBE
           path: ${{ runner.temp }}\aetherqor-blender-meshy-probe\*
           retention-days: 7
-          if-no-files-found: error
+          if-no-files-found: warn
+
+      - name: Fail if Blender is unavailable
+        if: env.BLENDER_FOUND != 'True'
+        shell: pwsh
+        run: throw 'Blender not found on self-hosted runner.'
