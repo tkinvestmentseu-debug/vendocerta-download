@@ -1,0 +1,257 @@
+name: AETHERQOR V6 Transcript + Split Review Recovery
+
+on:
+  push:
+    paths:
+      - '.github/workflows/aetherqor-v6-transcript-and-split-review-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  LOCAL_ROOT: 'D:\AetherqorFoundry\research\blockers_v6_urgent\ULTRA_RESEARCH_2026-09-05_URGENT'
+
+jobs:
+  recover_and_export:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve local tools
+        shell: pwsh
+        run: |
+          $runnerRoot = if ($env:AETHERQOR_RUNNER_ROOT) { $env:AETHERQOR_RUNNER_ROOT } else { 'C:\AETHERQOR_GitHubRunner' }
+          if(-not (Test-Path $runnerRoot)) { $runnerRoot = "$env:LOCALAPPDATA\AETHERQOR_GitHubRunner" }
+          $toolsRoot = if ($env:AETHERQOR_TOOLS) { $env:AETHERQOR_TOOLS } else { Join-Path $runnerRoot 'tools' }
+          $yt=(Get-Command yt-dlp -ErrorAction SilentlyContinue).Source
+          if(-not $yt) { $yt=Join-Path $toolsRoot 'yt-dlp\yt-dlp.exe' }
+          $ffmpeg=(Get-Command ffmpeg -ErrorAction SilentlyContinue).Source
+          if(-not $ffmpeg) { $ffmpeg=Join-Path $toolsRoot 'ffmpeg\bin\ffmpeg.exe' }
+          if(-not (Test-Path $yt)) { throw "yt-dlp missing: $yt" }
+          if(-not (Test-Path $ffmpeg)) { throw "ffmpeg missing: $ffmpeg" }
+          "YT_DLP=$yt" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "FFMPEG_EXE=$ffmpeg" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Ensure faster-whisper is available
+        shell: pwsh
+        run: |
+          python -c "import faster_whisper" 2>$null
+          if($LASTEXITCODE -ne 0) {
+            python -m pip install --user --disable-pip-version-check faster-whisper
+            if($LASTEXITCODE -ne 0) { throw 'Could not install faster-whisper' }
+          }
+          python -c "from faster_whisper import WhisperModel; print('FASTER_WHISPER_READY')"
+
+      - name: Recover only missing transcripts
+        shell: pwsh
+        run: |
+          $targets=@('p2_rigid_shell_game_res','p4_urp_hair')
+          foreach($slug in $targets) {
+            $root=Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $slug
+            $transcript=Join-Path $root 'transcript.txt'
+            if(Test-Path $transcript) {
+              Write-Host "TRANSCRIPT_ALREADY_PRESENT $slug"
+              continue
+            }
+            $urlFile=Join-Path $root 'selected_source_url.txt'
+            if(-not (Test-Path $urlFile)) { throw "Missing selected_source_url.txt for $slug" }
+            $url=(Get-Content $urlFile -First 1).Trim()
+            if(-not $url) { throw "Empty selected source URL for $slug" }
+            $audio=Join-Path $env:RUNNER_TEMP "$slug.audio.m4a"
+            if(Test-Path $audio) { Remove-Item $audio -Force }
+            & $env:YT_DLP --no-playlist -f 'ba[ext=m4a]/ba/b' -o $audio $url
+            if($LASTEXITCODE -ne 0 -or -not (Test-Path $audio)) { throw "Audio download failed for $slug from $url" }
+            $script=Join-Path $env:RUNNER_TEMP "transcribe_$slug.py"
+            @'
+          import sys
+          from faster_whisper import WhisperModel
+          audio, output = sys.argv[1], sys.argv[2]
+          model = WhisperModel('small.en', device='cpu', compute_type='int8')
+          segments, info = model.transcribe(audio, language='en', vad_filter=True, beam_size=5)
+          lines=[]
+          for s in segments:
+              text=s.text.strip()
+              if text:
+                  lines.append(f"[{s.start:09.3f}-{s.end:09.3f}] {text}")
+          if not lines:
+              raise SystemExit('zero transcript segments')
+          with open(output,'w',encoding='utf-8') as f:
+              f.write('\n'.join(lines)+'\n')
+          print(f"segments={len(lines)} language={info.language} probability={info.language_probability}")
+          '@ | Set-Content -Path $script -Encoding utf8
+            python $script $audio $transcript
+            if($LASTEXITCODE -ne 0 -or -not (Test-Path $transcript) -or (Get-Item $transcript).Length -lt 50) { throw "STT transcript failed for $slug" }
+            'local_faster_whisper_small.en_from_selected_source' | Set-Content (Join-Path $root 'transcript_source.txt') -Encoding utf8
+            if(Test-Path (Join-Path $root 'TRANSCRIPT_MISSING.txt')) { Remove-Item (Join-Path $root 'TRANSCRIPT_MISSING.txt') -Force }
+            if(Test-Path $audio) { Remove-Item $audio -Force }
+            Write-Host "TRANSCRIPT_RECOVERED $slug source=$url"
+          }
+
+      - name: Strictly verify all 10 local evidence sets
+        shell: pwsh
+        run: |
+          $rows=Get-Content 'research/aetherqor/blockers_v6_urgent/videos.psv' | Where-Object { $_ -and -not $_.StartsWith('#') }
+          if($rows.Count -ne 10) { throw "Expected exactly 10 catalog rows, got $($rows.Count)" }
+          $status=New-Object System.Collections.Generic.List[string]
+          $status.Add('# AETHERQOR V6 URGENT ULTRA RESEARCH — STRICT LOCAL STATUS')
+          $status.Add('')
+          $status.Add("Expected catalog videos: $($rows.Count)")
+          $status.Add('')
+          $status.Add('| slug | done | 1fps JPG | 3x3 sheets | 4fps JPG | transcript | indexes | selected source |')
+          $status.Add('|---|---:|---:|---:|---:|---:|---:|---|')
+          $complete=0; $tf=0; $ts=0; $th=0
+          foreach($line in $rows) {
+            $slug=($line -split '\|',5)[0]
+            $root=Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $slug
+            $done=Test-Path (Join-Path $root '_DONE.txt')
+            $frames=@(Get-ChildItem (Join-Path $root 'frames_1fps') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $sheets=@(Get-ChildItem (Join-Path $root 'contact_sheets_3x3') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $high=@(Get-ChildItem (Join-Path $root 'high_detail_4fps') -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $transcript=(Test-Path (Join-Path $root 'transcript.txt')) -and ((Get-Item (Join-Path $root 'transcript.txt')).Length -gt 0)
+            $indexes=(Test-Path (Join-Path $root 'frame_index.csv')) -and (Test-Path (Join-Path $root 'sheet_index.csv')) -and (Test-Path (Join-Path $root 'high_detail_index.csv'))
+            $manifest=Test-Path (Join-Path $root 'manifest.json')
+            $src=if(Test-Path (Join-Path $root 'selected_source_url.txt')) { (Get-Content (Join-Path $root 'selected_source_url.txt') -First 1).Trim() } else { '' }
+            $ok=$done -and $frames -gt 0 -and $sheets -gt 0 -and $transcript -and $indexes -and $manifest -and $src
+            if($ok) { $complete++ }
+            $tf+=$frames; $ts+=$sheets; $th+=$high
+            $status.Add("| $slug | $done | $frames | $sheets | $high | $transcript | $indexes | $src |")
+          }
+          $status.Add('')
+          $status.Add("Strict complete catalog video sets: $complete / $($rows.Count)")
+          $status.Add("Total raw 1fps JPG: $tf")
+          $status.Add("Total 3x3 sheet JPG: $ts")
+          $status.Add("Total high-detail 4fps JPG: $th")
+          $status | Set-Content (Join-Path $env:LOCAL_ROOT 'FINAL_STATUS.md') -Encoding utf8
+          @(
+            '# AETHERQOR V6 URGENT ULTRA RESEARCH — STRICT LOCAL ENTRYPOINT',
+            '',
+            "Root: $env:LOCAL_ROOT",
+            "Video sets ready with transcripts/indexes: $complete / $($rows.Count)",
+            "Raw 1fps JPG: $tf",
+            "3x3 sheet JPG: $ts",
+            "High-detail 4fps JPG: $th",
+            '',
+            'Review order: manifest/transcript/index -> all 3x3 sheets sequentially -> selected 1fps -> selected available 4fps.'
+          ) | Set-Content (Join-Path $env:LOCAL_ROOT 'LOCAL_READY.md') -Encoding utf8
+          if($complete -ne 10) { throw "STRICT V6 CATALOG INCOMPLETE: $complete / 10" }
+          Write-Host 'AETHERQOR_V6_STRICT_10_OF_10_READY'
+
+      - name: Build metadata review bundle
+        shell: pwsh
+        run: |
+          $bundle=Join-Path $env:RUNNER_TEMP 'aqv6-review-meta'
+          if(Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+          foreach($name in @('LOCAL_READY.md','FINAL_STATUS.md','QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V6_RESEARCH_HANDOFF.md','videos.psv')) {
+            $p=Join-Path $env:LOCAL_ROOT $name
+            if(Test-Path $p) { Copy-Item $p $bundle -Force }
+          }
+          $rows=Get-Content 'research/aetherqor/blockers_v6_urgent/videos.psv' | Where-Object { $_ -and -not $_.StartsWith('#') }
+          foreach($line in $rows) {
+            $slug=($line -split '\|',5)[0]
+            $src=Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $slug
+            $dst=Join-Path (Join-Path $bundle 'videos') $slug
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+            foreach($name in @('manifest.json','frame_index.csv','sheet_index.csv','high_detail_index.csv','transcript.txt','transcript_source.txt','selected_source_url.txt','_DONE.txt')) {
+              $p=Join-Path $src $name
+              if(Test-Path $p) { Copy-Item $p $dst -Force }
+            }
+          }
+
+      - name: Upload metadata review bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_CHATGPT_VISUAL_REVIEW_META
+          path: ${{ runner.temp }}\aqv6-review-meta
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 6
+
+      - name: Upload contact sheets per video
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $rows=Get-Content 'research/aetherqor/blockers_v6_urgent/videos.psv' | Where-Object { $_ -and -not $_.StartsWith('#') }
+          foreach($line in $rows) {
+            $slug=($line -split '\|',5)[0]
+            $root=Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $slug
+            $sheetDir=Join-Path $root 'contact_sheets_3x3'
+            $sheetIndex=Join-Path $root 'sheet_index.csv'
+            if(-not (Test-Path $sheetDir)) { throw "Missing sheet dir for $slug" }
+            $stage=Join-Path $env:RUNNER_TEMP "aqv6-sheets-$slug"
+            if(Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+            New-Item -ItemType Directory -Path $stage -Force | Out-Null
+            Copy-Item $sheetDir (Join-Path $stage 'contact_sheets_3x3') -Recurse -Force
+            Copy-Item $sheetIndex $stage -Force
+            $zip=Join-Path $env:RUNNER_TEMP "AETHERQOR_V6_CHATGPT_VISUAL_REVIEW_$slug.zip"
+            if(Test-Path $zip) { Remove-Item $zip -Force }
+            Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip -CompressionLevel Optimal
+            $size=(Get-Item $zip).Length
+            if($size -ge 500MB) { throw "Per-video sheet archive too large for connector: $slug bytes=$size" }
+            gh api --method POST -H 'Accept: application/vnd.github+json' /repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts 2>$null
+            Write-Host "SHEET_STAGE_READY $slug zip_bytes=$size"
+          }
+
+      - name: Upload p1 mobile sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p1_mobile_context_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p1_mobile_context\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p1 screen LOD sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p1_screen_size_lod_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p1_screen_size_lod\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p1 quad sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p1_quad_character_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p1_quad_character\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p2 sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p2_rigid_shell_game_res_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p2_rigid_shell_game_res\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p3 weights sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p3_blender_decimate_weights_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p3_blender_decimate_weights\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p3 seams sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p3_modular_seams_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p3_modular_seams\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p4 layering sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p4_hair_layering_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p4_hair_layering\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p4 rows sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p4_hair_rows_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p4_hair_rows\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p4 URP sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p4_urp_hair_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p4_urp_hair\contact_sheets_3x3
+          retention-days: 14
+      - name: Upload p5 readability sheets
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_REVIEW_p5_topdown_readability_SHEETS
+          path: ${{ env.LOCAL_ROOT }}\videos\p5_topdown_readability\contact_sheets_3x3
+          retention-days: 14
