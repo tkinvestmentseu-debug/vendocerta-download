@@ -10,59 +10,81 @@ permissions:
   contents: write
 
 concurrency:
-  group: aetherqor-runicwarden-meshy-blender-build
+  group: aetherqor-runicwarden-resume-core-only
   cancel-in-progress: true
 
 jobs:
   resume:
     runs-on: [self-hosted, Windows, X64, aetherqor-video]
-    timeout-minutes: 180
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Prepare resume from previous run
+      - name: Prepare finalize from completed core assets
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $source='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\run_33977323145'
+          $source='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265'
           if(-not (Test-Path -LiteralPath $source)){ throw "Source run not found: $source" }
-          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_$env:GITHUB_RUN_ID"
+          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\finalize_$env:GITHUB_RUN_ID"
           $gen=Join-Path $root 'generated'
+          $models=Join-Path $gen 'models'
+          $reports=Join-Path $gen 'reports'
           $final=Join-Path $root 'final'
-          New-Item -ItemType Directory -Force -Path $root,$gen,$final | Out-Null
+          New-Item -ItemType Directory -Force -Path $root,$gen,$models,$reports,$final | Out-Null
           "AQ_SOURCE=$source" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "AQ_RUN_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "AQ_GEN=$gen" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_MODELS=$models" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "AQ_FINAL=$final" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $blender='C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
           if(-not (Test-Path -LiteralPath $blender)){ throw 'Blender 5.2 not found.' }
           "AQ_BLENDER=$blender" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Resume required core assets only, no jewellery
+      - name: Reuse completed core assets only, zero Meshy calls
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          & "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\resume_core_only.ps1" -SourceRunRoot $env:AQ_SOURCE -OutputRoot $env:AQ_GEN
-          if($LASTEXITCODE -ne 0){ throw "Resume generator exit=$LASTEXITCODE" }
-
-      - name: Enforce rig and no jewellery
-        shell: pwsh
-        run: |
-          $ErrorActionPreference='Stop'
-          $models=Join-Path $env:AQ_GEN 'models'
-          foreach($n in @('Ring_L','Ring_R','Necklace','Bracelet')){
-            Get-ChildItem -LiteralPath $models -File -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -eq $n } | Remove-Item -Force -ErrorAction SilentlyContinue
+          $src=Join-Path $env:AQ_SOURCE 'generated\models'
+          if(-not (Test-Path -LiteralPath $src)){ throw "Source models not found: $src" }
+          $required=@('Body_Rigged','Helmet','ChestArmor','Shoulders','Gloves','Belt','Legs','Boots','Cloak','Sword','Shield','ClassRelic')
+          foreach($n in $required){
+            $p=Join-Path $src "$n.glb"
+            if(-not (Test-Path -LiteralPath $p)){ throw "MISSING_CORE_ASSET: $n.glb" }
+            Copy-Item -LiteralPath $p -Destination (Join-Path $env:AQ_MODELS "$n.glb") -Force
+            $fbx=Join-Path $src "$n.fbx"
+            if(Test-Path -LiteralPath $fbx){ Copy-Item -LiteralPath $fbx -Destination (Join-Path $env:AQ_MODELS "$n.fbx") -Force }
           }
-          if(-not (Test-Path -LiteralPath (Join-Path $models 'Body_Rigged.glb'))){ throw 'Body_Rigged.glb required.' }
+          $bad=@('Ring_L','Ring_R','Necklace','Bracelet')
+          foreach($n in $bad){
+            Get-ChildItem -LiteralPath $env:AQ_MODELS -File -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -eq $n } | Remove-Item -Force
+          }
+          $report=[ordered]@{source=$src;reused_core=$required;jewellery_excluded=$bad;meshy_calls=0;rig_present=(Test-Path -LiteralPath (Join-Path $env:AQ_MODELS 'Body_Rigged.glb'))}
+          $report|ConvertTo-Json -Depth 5|Set-Content -LiteralPath (Join-Path $env:AQ_GEN 'reports\finalize_reuse.json') -Encoding UTF8
+          Write-Host 'CORE_REUSE_DONE - Meshy calls: 0'
 
       - name: Assemble in Blender
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          & $env:AQ_BLENDER --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\assemble_runic_warden.py" -- --input "$env:AQ_GEN\models" --output $env:AQ_FINAL
-          if($LASTEXITCODE -ne 0){ throw "Blender exit=$LASTEXITCODE" }
+          & $env:AQ_BLENDER --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\assemble_runic_warden.py" -- --input $env:AQ_MODELS --output $env:AQ_FINAL
+          if($LASTEXITCODE -ne 0){ throw "Blender assembly exit=$LASTEXITCODE" }
+
+      - name: Verify final outputs and rig
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $must=@('AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.blend','AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.glb','AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.fbx','AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_LOD0.glb','AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_LOD1.glb','AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_LOD2.glb','AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_MANIFEST.json')
+          foreach($f in $must){ if(-not (Test-Path -LiteralPath (Join-Path $env:AQ_FINAL $f))){ throw "FINAL_MISSING: $f" } }
+          $qa=Join-Path $env:AQ_FINAL 'reports\assembly_qa.json'
+          if(-not (Test-Path -LiteralPath $qa)){ throw 'FINAL_MISSING: assembly_qa.json' }
+          $j=Get-Content -LiteralPath $qa -Raw|ConvertFrom-Json
+          if([string]::IsNullOrWhiteSpace($j.armature)){ throw 'QA_FAIL: armature missing' }
+          if([int]$j.bones -lt 15){ throw "QA_FAIL: suspicious bone count $($j.bones)" }
+          foreach($n in @('Ring_L','Ring_R','Necklace','Bracelet')){ if($j.slots.PSObject.Properties.Name -contains $n){ throw "QA_FAIL: jewellery leaked into final: $n" } }
+          Write-Host "FINAL_QA_PASS armature=$($j.armature) bones=$($j.bones) tris=$($j.total_triangles)"
 
       - name: Copy to Unity staging
         shell: pwsh
@@ -74,22 +96,20 @@ jobs:
           "UNITY_STAGING=$dst" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Package final
-        if: always()
         shell: pwsh
         run: |
-          $ErrorActionPreference='Continue'
-          $zip=Join-Path $env:AQ_RUN_ROOT 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_CORE_ONLY.zip'
-          if(Test-Path -LiteralPath $env:AQ_FINAL){ Compress-Archive -Path "$env:AQ_FINAL\*","$env:AQ_GEN\reports\*" -DestinationPath $zip -Force }
+          $ErrorActionPreference='Stop'
+          $zip=Join-Path $env:AQ_RUN_ROOT 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_FINALIZED.zip'
+          Compress-Archive -Path "$env:AQ_FINAL\*","$env:AQ_GEN\reports\*" -DestinationPath $zip -Force
           "AQ_ZIP=$zip" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Upload core-only package
-        if: always()
+      - name: Upload finalized package
         uses: actions/upload-artifact@v4
         with:
-          name: AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_CORE_ONLY
+          name: AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_FINALIZED
           path: |
             ${{ env.AQ_FINAL }}\**\*
             ${{ env.AQ_GEN }}\reports\**\*
-            ${{ env.AQ_RUN_ROOT }}\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_CORE_ONLY.zip
+            ${{ env.AQ_RUN_ROOT }}\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_FINALIZED.zip
           retention-days: 14
-          if-no-files-found: warn
+          if-no-files-found: error
