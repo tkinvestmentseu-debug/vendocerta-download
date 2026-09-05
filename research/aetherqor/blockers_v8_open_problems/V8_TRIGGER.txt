@@ -1,0 +1,4 @@
+trigger=2026-09-05T11:38:00Z
+scope=A1-A5,B1-B6,C1-C3
+mode=mega-research-video-1fps-3x3-transcript-4fps-github-forums
+require_complete_catalog=true
