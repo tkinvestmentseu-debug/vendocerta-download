@@ -16,11 +16,14 @@ Required loop:
 4. `PRELIMINARY_VERDICTS.md`
 5. `SOURCE_REGISTRY.md`
 6. `GITHUB_CANDIDATES.md`
-7. `FINAL_STATUS.md`
-8. `videos.psv`
-9. all V8 video evidence using protocol below
-10. relevant V3-V7 local packages
-11. current AETHERQOR source/assets/contracts/forensics
+7. `CLAUDE_TOOLCHAIN_AND_SKILLS.md`
+8. `FINAL_STATUS.md`
+9. `videos.psv`
+10. all V8 video evidence using protocol below
+11. relevant V3-V7 local packages
+12. current AETHERQOR source/assets/contracts/forensics
+
+Before implementing broad character-pipeline changes, apply the toolchain policy in `CLAUDE_TOOLCHAIN_AND_SKILLS.md`: use Blender MCP and Unity MCP for direct editor evidence, create a pinned geometry/QA Python environment, use license gates for external code, and prefer focused project Skills + restricted subagents + deterministic hooks over one giant prompt. Do not install optional tools unless a measured blocker needs them and a sandbox smoke test passes.
 
 ## Video protocol — every V8 slug
 1. `manifest.json`
