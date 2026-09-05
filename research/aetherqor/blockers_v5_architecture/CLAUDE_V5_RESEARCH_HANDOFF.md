@@ -17,11 +17,14 @@ Reuse existing local evidence instead of redownloading it:
 2. `QUESTIONS.md`
 3. `SOURCE_REGISTRY.md`
 4. `PRELIMINARY_VERDICTS.md`
-5. `FINAL_STATUS.md`
-6. each new video `manifest.json`, `transcript.txt`, `frame_index.csv`, `sheet_index.csv`, `high_detail_index.csv`
-7. 3x3 contact sheets sequentially
-8. selected raw 1fps frames only for relevant time ranges
-9. selected 4fps high-detail frames for critical visual steps
+5. `CHATGPT_INDEPENDENT_ANALYSIS.md`
+6. `FINAL_STATUS.md`
+7. each new video `manifest.json`, `transcript.txt`, `frame_index.csv`, `sheet_index.csv`, `high_detail_index.csv`
+8. 3x3 contact sheets sequentially
+9. selected raw 1fps frames only for relevant time ranges
+10. selected 4fps high-detail frames for critical visual steps
+
+`CHATGPT_INDEPENDENT_ANALYSIS.md` is an independent technical hypothesis set, not authority. Validate or falsify it with V5 video evidence and real AETHERQOR experiments.
 
 Transcripts are navigation aids, not visual proof.
 
