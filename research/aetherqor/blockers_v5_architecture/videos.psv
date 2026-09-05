@@ -1,0 +1,12 @@
+# slug|primary_url|fallback_url|topic
+p1_lowpoly_character|https://www.youtube.com/watch?v=yoMMDbDSjAk|https://www.youtube.com/watch?v=1BbIc8ZMquI|P1 official Simplygon low-poly skinned character optimization: how triangle reduction is actually allocated and judged
+p1_quad_lod0|https://www.youtube.com/watch?v=1BbIc8ZMquI|https://www.youtube.com/watch?v=yoMMDbDSjAk|P1 official Simplygon quad reduction for character LOD0/platform variants: preserve topology while reducing character geometry
+p1_character_reducer|https://www.youtube.com/watch?v=-AwNG1b9urQ|https://www.youtube.com/watch?v=841kll01PgM|P1/P3 official Simplygon character triangle reduction pipeline: reduction priorities, skinning-aware topology and artist control
+p1_mobile_rig_reduction|https://www.youtube.com/watch?v=DU_IoXQ49rM|https://www.youtube.com/watch?v=jb5AXW41vIs|P1 mobile character optimization: rig/bone/influence reduction and multiple quality versions for focus vs gameplay
+p2_alpha_wrap|https://www.youtube.com/watch?v=Sle_Ylbwmc4||P2 CGAL Alpha Wrapping with offset visual behavior: wrapping defective input, fidelity versus complexity and cavity behavior
+p3_vertex_weights|https://www.youtube.com/watch?v=841kll01PgM|https://www.youtube.com/watch?v=1BbIc8ZMquI|P3 official Simplygon vertex weights: preserve critical regions and prevent destructive second-pass reduction
+p3_modular_seams|https://www.youtube.com/watch?v=eqyrdKu_yKk|https://www.youtube.com/watch?v=841kll01PgM|P3 official Simplygon modular seams: independent modular part optimization while preserving shared borders
+p3_topdown_reduction|https://www.youtube.com/watch?v=kGEWpJU9Cj4|https://www.youtube.com/watch?v=yoMMDbDSjAk|P3/P5 low-poly and remesher decisions for top-down/strategy viewing: screen-space driven reduction and camera-context validation
+p4_hair_cards_intro|https://www.youtube.com/watch?v=MxOfDMIl97U|https://www.youtube.com/watch?v=QLGLjeIrjWE|P4 production hair-card layering fundamentals: scalp coverage, base layer, card flow and overlap strategy
+p4_hair_cards_blender|https://www.youtube.com/watch?v=QLGLjeIrjWE|https://www.youtube.com/watch?v=MxOfDMIl97U|P4 hair-card geometry construction in Blender: curvature, overlapping cards and card density versus silhouette
+p4_hair_cards_rows|https://www.youtube.com/watch?v=Fp4g0GlNFu0|https://www.youtube.com/watch?v=CHATtTyUJZA|P4 structured hair-card row layering: underlay/main/breakup construction and how coverage is produced without a heavy cap
