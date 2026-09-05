@@ -114,7 +114,11 @@ def parent_keep_world(obj,parent,bone=None):
     mw=obj.matrix_world.copy()
     obj.parent=parent
     if bone:
-        obj.parent_type='BONE'; obj.parent_bone=bone
+        obj.parent_type='BONE'
+        obj.parent_bone=bone
+    else:
+        obj.parent_type='OBJECT'
+        obj.parent_bone=''
     obj.matrix_world=mw
 
 def weight_transfer(obj,body,arm):
@@ -184,6 +188,8 @@ headbone=bone_name(arm,'head')
 neckbone=bone_name(arm,'neck')
 spinebone=bone_name(arm,'spine2','spine02','spine1','spine01','chest','spine')
 hipbone=bone_name(arm,'hips','pelvis','root')
+if not rhand or not lhand:
+    raise RuntimeError(f'RIG_REQUIRED: hand bones unresolved (right={rhand}, left={lhand})')
 rp=bone_pos(arm,rhand); lp=bone_pos(arm,lhand)
 if rp is None: rp=Vector((cx+H*.34,cy,mn.z+H*.54))
 if lp is None: lp=Vector((cx-H*.34,cy,mn.z+H*.54))
@@ -286,7 +292,7 @@ for loc,energy,size in [((cx-H*.8,cy-H*1.1,mn.z+H*1.25),1300,4),((cx+H*.8,cy-H*.
 camd=bpy.data.cameras.new('QA_Camera'); cam=bpy.data.objects.new('QA_Camera',camd); bpy.context.scene.collection.objects.link(cam); bpy.context.scene.camera=cam
 camd.lens=58
 scene=bpy.context.scene
-scene.render.engine='BLENDER_EEVEE_NEXT'; scene.render.resolution_x=1024; scene.render.resolution_y=1024; scene.render.resolution_percentage=100
+scene.render.engine='BLENDER_EEVEE'; scene.render.resolution_x=1024; scene.render.resolution_y=1024; scene.render.resolution_percentage=100
 scene.render.image_settings.file_format='PNG'; scene.render.film_transparent=False
 scene.world.color=(0.018,0.018,0.018)
 for name,loc in [('front',(cx,cy-H*2.35,mn.z+H*.57)),('three_quarter',(cx+H*1.45,cy-H*1.85,mn.z+H*.62)),('back',(cx,cy+H*2.35,mn.z+H*.57))]:
