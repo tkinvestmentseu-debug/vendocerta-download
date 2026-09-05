@@ -151,18 +151,20 @@ def get_existing_glb(name):
     p=os.path.join(INPUT,name+'.glb')
     return p if os.path.isfile(p) else None
 
-# ---------- body ----------
+# ---------- body / RIG HARD GATE ----------
 clear_scene()
-body_path=get_existing_glb('Body_Rigged') or get_existing_glb('Body_Base')
-if not body_path: raise RuntimeError('Body_Rigged.glb / Body_Base.glb missing')
+body_path=get_existing_glb('Body_Rigged')
+if not body_path:
+    raise RuntimeError('RIG_REQUIRED: Body_Rigged.glb missing. Refusing to build an unrigged final character.')
 body_objs=import_glb(body_path)
 arm=find_armature(body_objs); body=largest_body_mesh(body_objs)
 if body is None: raise RuntimeError('No body mesh imported')
+if arm is None: raise RuntimeError('RIG_REQUIRED: no Armature object in Body_Rigged.glb')
+if len(arm.data.bones) < 15: raise RuntimeError(f'RIG_REQUIRED: suspiciously small skeleton ({len(arm.data.bones)} bones)')
 body.name='BODY_BASE'
-if arm: arm.name='ARMATURE_AETHERQOR_HUMANOID'
+arm.name='ARMATURE_AETHERQOR_HUMANOID'
 mn,mx=world_bbox([body]); H=mx.z-mn.z; cx=(mn.x+mx.x)/2; cy=(mn.y+mx.y)/2
 if H<=0: raise RuntimeError('Invalid body height')
-# Normalize final visual height to 1.78 m if rig import differs.
 scale=1.78/H
 if abs(scale-1)>0.01:
     roots=[o for o in body_objs if o.parent is None]
@@ -186,7 +188,7 @@ rp=bone_pos(arm,rhand); lp=bone_pos(arm,lhand)
 if rp is None: rp=Vector((cx+H*.34,cy,mn.z+H*.54))
 if lp is None: lp=Vector((cx-H*.34,cy,mn.z+H*.54))
 
-# ---------- targets ----------
+# ---------- gameplay gear targets ----------
 T={
  'Helmet':((cx,cy,mn.z+H*.91),(headW*1.35,headD*1.45,H*.16),'skin'),
  'ChestArmor':((cx,cy,mn.z+H*.66),(torsoW*1.16,torsoD*1.55,H*.27),'skin'),
@@ -198,10 +200,6 @@ T={
  'Cloak':((cx,cy+torsoD*.82,mn.z+H*.54),(torsoW*1.25,H*.055,H*.56),'skin'),
  'Sword':((rp.x,rp.y,mn.z+H*.43),(H*.07,H*.055,H*.76),'rhand'),
  'Shield':((lp.x,lp.y,mn.z+H*.57),(H*.31,H*.08,H*.44),'lhand'),
- 'Ring_L':((lp.x,lp.y,mn.z+H*.51),(H*.022,H*.022,H*.012),'lhand'),
- 'Ring_R':((rp.x,rp.y,mn.z+H*.51),(H*.022,H*.022,H*.012),'rhand'),
- 'Necklace':((cx,cy-torsoD*.60,mn.z+H*.80),(headW*1.18,H*.025,H*.12),'neck'),
- 'Bracelet':((lp.x,lp.y,mn.z+H*.54),(H*.055,H*.055,H*.045),'lhand'),
  'ClassRelic':((cx,cy-torsoD*.82,mn.z+H*.67),(H*.09,H*.035,H*.12),'spine')
 }
 
@@ -219,7 +217,7 @@ for slot,(center,dims,mode) in T.items():
     if mode=='skin':
         for o in ms: weight_transfer(o,body,arm)
     else:
-        b={'rhand':rhand,'lhand':lhand,'neck':neckbone,'spine':spinebone}.get(mode)
+        b={'rhand':rhand,'lhand':lhand,'spine':spinebone}.get(mode)
         for o in ms:
             if arm and b: parent_keep_world(o,arm,b)
     slot_objects[slot]=ms
@@ -229,15 +227,12 @@ sockets={}
 for nm,b in [('Socket_RightHand',rhand),('Socket_LeftHand',lhand),('Socket_BackWeapon',spinebone),('Socket_BackShield',spinebone),('Socket_Head',headbone),('Socket_Neck',neckbone),('Socket_Hips',hipbone)]:
     sockets[nm]=create_socket(arm,nm,b)
 
-# attach weapon/shield under hand sockets, while preserving transform
+# attach weapon/shield under explicit sockets
 for slot,sock in [('Sword','Socket_RightHand'),('Shield','Socket_LeftHand')]:
     for o in slot_objects.get(slot,[]): parent_keep_world(o,sockets[sock])
-# rings / bracelet rigidly follow hands; if previous bone parent exists, move under explicit sockets
-for slot,sock in [('Ring_R','Socket_RightHand'),('Ring_L','Socket_LeftHand'),('Bracelet','Socket_LeftHand')]:
-    for o in slot_objects.get(slot,[]): parent_keep_world(o,sockets[sock])
 
-# Collections for clarity
-for name in ['BODY','GEAR','ACCESSORIES','WEAPONS','SOCKETS']:
+# Collections
+for name in ['BODY','GEAR','WEAPONS','SOCKETS']:
     if name not in bpy.data.collections:
         c=bpy.data.collections.new(name); bpy.context.scene.collection.children.link(c)
 
@@ -248,7 +243,7 @@ def move_to_collection(obj,cname):
 for o in body_objs:
     if o.name in bpy.data.objects: move_to_collection(o,'BODY')
 for slot,obs in slot_objects.items():
-    cname='WEAPONS' if slot in ('Sword','Shield') else ('ACCESSORIES' if slot in ('Ring_L','Ring_R','Necklace','Bracelet','ClassRelic') else 'GEAR')
+    cname='WEAPONS' if slot in ('Sword','Shield') else 'GEAR'
     for o in obs: move_to_collection(o,cname)
 for o in sockets.values(): move_to_collection(o,'SOCKETS')
 
@@ -258,6 +253,8 @@ def tri_count_obj(o):
     return sum(max(0,len(p.vertices)-2) for p in o.data.polygons)
 qa={
  'body_height_m':H,
+ 'rig_required':True,
+ 'rig_present':arm is not None,
  'armature':arm.name if arm else None,
  'bones':len(arm.data.bones) if arm else 0,
  'body_vertices':len(body.data.vertices),
@@ -265,6 +262,7 @@ qa={
  'slots':{},
  'sockets':list(sockets),
  'materials':len({m.name for o in bpy.data.objects if o.type=='MESH' for m in o.data.materials if m}),
+ 'jewelry_generated_or_expected':False,
 }
 for slot,obs in slot_objects.items():
     qa['slots'][slot]={'objects':len(obs),'triangles':sum(tri_count_obj(o) for o in obs),'vertices':sum(len(o.data.vertices) for o in obs)}
@@ -272,8 +270,7 @@ qa['total_triangles']=sum(tri_count_obj(o) for o in bpy.data.objects if o.type==
 qa['missing_slots']=[s for s in T if s not in slot_objects]
 with open(os.path.join(OUTPUT,'reports','assembly_qa.json'),'w',encoding='utf8') as f: json.dump(qa,f,indent=2,ensure_ascii=False)
 
-# manifest
-manifest={'character':'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1','input_dir':INPUT,'slots':list(slot_objects),'missing':qa['missing_slots'],'sockets':list(sockets),'blender':bpy.app.version_string}
+manifest={'character':'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1','requirement':'RIGGED_CHARACTER_WITH_MODULAR_GAMEPLAY_GEAR','input_dir':INPUT,'slots':list(slot_objects),'missing':qa['missing_slots'],'sockets':list(sockets),'armature':arm.name,'bones':len(arm.data.bones),'blender':bpy.app.version_string}
 with open(os.path.join(OUTPUT,'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_MANIFEST.json'),'w',encoding='utf8') as f: json.dump(manifest,f,indent=2)
 
 # ---------- render ----------
@@ -281,10 +278,8 @@ def look_at(obj, target):
     direction=Vector(target)-obj.location
     obj.rotation_euler=direction.to_track_quat('-Z','Y').to_euler()
 
-# floor
 bpy.ops.mesh.primitive_plane_add(size=8, location=(cx,cy,mn.z-.005)); floor=bpy.context.object; floor.name='QA_Floor'
 mat=bpy.data.materials.new('QA_Floor_Mat'); mat.diffuse_color=(0.035,0.035,0.035,1); floor.data.materials.append(mat)
-# lights
 for loc,energy,size in [((cx-H*.8,cy-H*1.1,mn.z+H*1.25),1300,4),((cx+H*.8,cy-H*.6,mn.z+H*.9),900,3),((cx,cy+H*.8,mn.z+H*1.1),1100,3)]:
     ld=bpy.data.lights.new('QA_Area','AREA'); ld.energy=energy; ld.shape='DISK'; ld.size=size
     lo=bpy.data.objects.new('QA_Area',ld); bpy.context.scene.collection.objects.link(lo); lo.location=loc; look_at(lo,(cx,cy,mn.z+H*.55))
@@ -299,7 +294,6 @@ for name,loc in [('front',(cx,cy-H*2.35,mn.z+H*.57)),('three_quarter',(cx+H*1.45
     try: bpy.ops.render.render(write_still=True)
     except Exception as e: log(f'render {name} failed: {e}')
 
-# hide QA floor/lights/camera from exports
 for o in [floor,cam]+[o for o in bpy.data.objects if o.name.startswith('QA_Area')]: o.hide_render=True
 
 # ---------- save/export ----------
@@ -313,7 +307,6 @@ def export_pair(suffix):
     bpy.ops.export_scene.fbx(filepath=fbx,use_selection=False,add_leaf_bones=False,bake_anim=True,apply_scale_options='FBX_SCALE_ALL')
 
 export_pair('LOD0')
-# LOD1 / LOD2: decimate mesh data while preserving armature/weights.
 for ratio,label in [(0.58,'LOD1'),(0.52,'LOD2')]:
     for o in [x for x in bpy.data.objects if x.type=='MESH' and not x.name.startswith('QA_')]:
         if len(o.data.polygons)<100: continue
@@ -323,8 +316,7 @@ for ratio,label in [(0.58,'LOD1'),(0.52,'LOD2')]:
         except Exception as e: log(f'decimate failed {o.name}: {e}')
     export_pair(label)
 
-# convenience aliases requested by owner
 import shutil
 shutil.copy2(os.path.join(OUTPUT,'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_LOD0.glb'),os.path.join(OUTPUT,'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.glb'))
 shutil.copy2(os.path.join(OUTPUT,'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_LOD0.fbx'),os.path.join(OUTPUT,'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.fbx'))
-log('ASSEMBLY_DONE')
+log('ASSEMBLY_DONE_RIGGED')
