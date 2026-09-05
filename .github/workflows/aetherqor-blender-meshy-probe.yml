@@ -1,0 +1,109 @@
+name: AETHERQOR Blender Meshy Probe
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/blender_meshy_probe/TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-blender-meshy-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe local Blender and Meshy pipeline without exposing secrets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $outDir = Join-Path $env:RUNNER_TEMP 'aetherqor-blender-meshy-probe'
+          New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+          $blenderCandidates = @(
+            'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe',
+            'C:\Program Files\Blender Foundation\Blender 5.1\blender.exe',
+            'C:\Program Files\Blender Foundation\Blender 5.0\blender.exe'
+          )
+          $blender = $blenderCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $blender) {
+            $blender = Get-ChildItem 'C:\Program Files\Blender Foundation' -Recurse -Filter blender.exe -File -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+
+          $blenderVersion = $null
+          if ($blender) {
+            try { $blenderVersion = (& $blender --version | Select-Object -First 1) } catch { $blenderVersion = "ERROR: $($_.Exception.Message)" }
+          }
+
+          $projectCandidates = @(
+            'D:\Aetherfall - Realms of the Veil',
+            'D:\Aetherqor - Realms of the Veil'
+          )
+          $project = $projectCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+
+          $pipelineCandidates = @(
+            'D:\AetherqorPipeline',
+            'D:\AetherqorFoundry',
+            'D:\Aetherqor_AI_Bridge'
+          )
+          $pipelineRoots = @($pipelineCandidates | Where-Object { Test-Path -LiteralPath $_ })
+
+          $meshyKeyPresent = -not [string]::IsNullOrWhiteSpace($env:MESHY_API_KEY)
+          $meshyScripts = @()
+          foreach ($root in $pipelineRoots) {
+            $meshyScripts += Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+              Where-Object { $_.Name -match 'meshy' -and $_.Extension -in @('.ps1','.py','.js','.json','.md') } |
+              Select-Object -First 50 -ExpandProperty FullName
+          }
+          $meshyScripts = @($meshyScripts | Select-Object -Unique)
+
+          $report = [ordered]@{
+            TimestampUtc = [DateTime]::UtcNow.ToString('o')
+            Machine = $env:COMPUTERNAME
+            RunnerName = $env:RUNNER_NAME
+            RunnerTemp = $env:RUNNER_TEMP
+            BlenderFound = [bool]$blender
+            BlenderPath = $blender
+            BlenderVersion = $blenderVersion
+            MeshyApiKeyPresent = $meshyKeyPresent
+            UnityProject = $project
+            PipelineRoots = $pipelineRoots
+            MeshyScriptCount = $meshyScripts.Count
+            MeshyScripts = $meshyScripts
+          }
+
+          $jsonPath = Join-Path $outDir 'probe.json'
+          $txtPath = Join-Path $outDir 'probe.txt'
+          $report | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $jsonPath -Encoding UTF8
+
+          @(
+            "Machine=$($report.Machine)",
+            "RunnerName=$($report.RunnerName)",
+            "BlenderFound=$($report.BlenderFound)",
+            "BlenderPath=$($report.BlenderPath)",
+            "BlenderVersion=$($report.BlenderVersion)",
+            "MeshyApiKeyPresent=$($report.MeshyApiKeyPresent)",
+            "UnityProject=$($report.UnityProject)",
+            "PipelineRoots=$($report.PipelineRoots -join ';')",
+            "MeshyScriptCount=$($report.MeshyScriptCount)"
+          ) | Set-Content -LiteralPath $txtPath -Encoding UTF8
+
+          Write-Host "=== AETHERQOR PROBE ==="
+          Get-Content -LiteralPath $txtPath
+
+          if (-not $blender) { throw 'Blender not found on self-hosted runner.' }
+
+      - name: Upload probe report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_BLENDER_MESHY_PROBE
+          path: ${{ runner.temp }}\aetherqor-blender-meshy-probe\*
+          retention-days: 7
+          if-no-files-found: error
