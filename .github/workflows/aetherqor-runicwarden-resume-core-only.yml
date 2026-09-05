@@ -102,14 +102,14 @@ jobs:
           $zip=Join-Path $env:AQ_RUN_ROOT 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_FINALIZED.zip'
           Compress-Archive -Path "$env:AQ_FINAL\*","$env:AQ_GEN\reports\*" -DestinationPath $zip -Force
           "AQ_ZIP=$zip" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $bytes=(Get-Item -LiteralPath $zip).Length
+          Write-Host "FINAL_ZIP_BYTES=$bytes"
 
       - name: Upload finalized package
         uses: actions/upload-artifact@v4
         with:
           name: AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_FINALIZED
-          path: |
-            ${{ env.AQ_FINAL }}\**\*
-            ${{ env.AQ_GEN }}\reports\**\*
-            ${{ env.AQ_RUN_ROOT }}\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_FINALIZED.zip
+          path: ${{ env.AQ_RUN_ROOT }}\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_FINALIZED.zip
+          compression-level: 0
           retention-days: 14
           if-no-files-found: error
