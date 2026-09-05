@@ -1,0 +1,33 @@
+name: AETHERQOR RunicWarden Visual Diagnose
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/VISUAL_DIAG_TRIGGER.txt'
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Blender visual diagnosis
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $blend='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\finalize_33980393094\final\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.blend'
+          if(-not (Test-Path -LiteralPath $blend)){ throw "Final blend missing: $blend" }
+          $out="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\visual_diag_$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $blender='C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
+          & $blender --background $blend --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\diagnose_final_visual.py" -- --output $out
+          if($LASTEXITCODE -ne 0){ throw "Blender diagnostic exit=$LASTEXITCODE" }
+          "AQ_DIAG=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - name: Upload diagnostic pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_VISUAL_DIAG
+          path: ${{ env.AQ_DIAG }}\*
+          retention-days: 7
+          compression-level: 0
