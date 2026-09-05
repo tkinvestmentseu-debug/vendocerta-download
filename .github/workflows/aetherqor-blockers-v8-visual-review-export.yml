@@ -28,7 +28,13 @@ jobs:
           $videosOut=Join-Path $env:REVIEW_ROOT 'videos'
           New-Item -ItemType Directory -Path $videosOut -Force | Out-Null
 
-          foreach($name in @('LOCAL_READY.md','FINAL_STATUS.md','QUESTIONS.md','SOURCE_REGISTRY.md','GITHUB_CANDIDATES.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V8_RESEARCH_HANDOFF.md','videos.psv')) {
+          # Main V8 finalizer installs the core package. Add the independently researched web/forum/GitHub report here as well.
+          $externalRepo=Join-Path 'research/aetherqor/blockers_v8_open_problems' 'EXTERNAL_RESEARCH_REPORT.md'
+          if(Test-Path $externalRepo) {
+            Copy-Item $externalRepo (Join-Path $env:LOCAL_ROOT 'EXTERNAL_RESEARCH_REPORT.md') -Force
+          }
+
+          foreach($name in @('LOCAL_READY.md','FINAL_STATUS.md','QUESTIONS.md','SOURCE_REGISTRY.md','GITHUB_CANDIDATES.md','EXTERNAL_RESEARCH_REPORT.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V8_RESEARCH_HANDOFF.md','videos.psv')) {
             $src=Join-Path $env:LOCAL_ROOT $name
             if(Test-Path $src) { Copy-Item $src (Join-Path $env:REVIEW_ROOT $name) -Force }
           }
