@@ -1,0 +1,94 @@
+name: AETHERQOR FlyCat Low Token Triage
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/flycat_armor_forensics/TRIAGE_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-flycat-low-token-triage
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  triage:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 180
+    env:
+      ROOT: 'D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI'
+      OUT: 'D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\low_token_triage'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Locate pygeom Python
+        id: py
+        shell: pwsh
+        run: |
+          $candidates=@(
+            'D:\AetherqorFoundry\tools\pygeom\.venv\Scripts\python.exe',
+            'D:\AetherqorFoundry\tools\pygeom\Scripts\python.exe',
+            'D:\AetherqorFoundry\tools\pygeom\python.exe'
+          )
+          $py=$candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if(-not $py){
+            $cmd=Get-Command python -ErrorAction SilentlyContinue
+            if($cmd){ $py=$cmd.Source }
+          }
+          if(-not $py){ throw 'No Python interpreter found for FlyCat triage' }
+          "python=$py" >> $env:GITHUB_OUTPUT
+          & $py --version
+
+      - name: Run code-first change detection and clustering
+        shell: pwsh
+        run: |
+          if(-not (Test-Path (Join-Path $env:ROOT '_FORENSICS_DONE.txt'))){ throw 'FlyCat forensic source is not ready yet' }
+          $dense=Join-Path $env:ROOT 'dense_frames_8fps'
+          if(-not (Test-Path $dense)){ throw 'dense_frames_8fps missing' }
+          if(Test-Path $env:OUT){ Remove-Item $env:OUT -Recurse -Force }
+          New-Item -ItemType Directory -Path $env:OUT -Force | Out-Null
+          & '${{ steps.py.outputs.python }}' '.\tools\analyze-flycat-change-points.py' `
+            --frames-dir $dense `
+            --output-dir $env:OUT `
+            --fps 8 `
+            --resize-width 320 `
+            --quantile 0.92 `
+            --merge-gap-seconds 0.75 `
+            --pad-seconds 0.50 `
+            --copy-representatives
+          if($LASTEXITCODE -ne 0){ throw 'FlyCat change analysis failed' }
+
+      - name: Positive-control validation of detector
+        shell: pwsh
+        run: |
+          $csv=Import-Csv (Join-Path $env:OUT 'forensic_change_points.csv')
+          $summary=Get-Content (Join-Path $env:OUT 'forensic_summary.json') -Raw | ConvertFrom-Json
+          if($csv.Count -lt 1000){ throw "Unexpectedly low frame count: $($csv.Count)" }
+          if([int]$summary.candidate_frames -le 0){ throw 'Detector found zero candidate frames' }
+          if([int]$summary.clusters -le 0){ throw 'Detector found zero clusters' }
+          $max=($csv | Measure-Object -Property score -Maximum).Maximum
+          if([double]$max -le [double]$summary.score_threshold){ throw 'Positive control failed: no score exceeded threshold' }
+          Write-Host "DETECTOR_PASS frames=$($summary.frames_total) candidates=$($summary.candidate_frames) clusters=$($summary.clusters) threshold=$($summary.score_threshold)"
+
+      - name: Copy lightweight navigation evidence
+        shell: pwsh
+        run: |
+          $nav=Join-Path $env:OUT 'navigation'
+          New-Item -ItemType Directory -Path $nav -Force | Out-Null
+          foreach($f in @('manifest.json','transcript.txt','TRANSCRIPT_MISSING.txt','frame_index.csv','sheet_index.csv','dense_8fps_index.csv','dense_sheet_index.csv','LOCAL_READY.md')){
+            $src=Join-Path $env:ROOT $f
+            if(Test-Path $src){ Copy-Item $src $nav -Force }
+          }
+          $sheets=Join-Path $env:ROOT 'contact_sheets_3x3'
+          if(Test-Path $sheets){ Copy-Item $sheets (Join-Path $nav 'contact_sheets_3x3') -Recurse -Force }
+
+      - name: Upload low-token triage bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_FLYCAT_LOW_TOKEN_TRIAGE
+          path: D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\low_token_triage
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 5
