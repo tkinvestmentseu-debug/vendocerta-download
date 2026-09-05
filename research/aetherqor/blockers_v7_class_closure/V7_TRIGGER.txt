@@ -1,0 +1,4 @@
+started=2026-09-05T07:45:00Z
+root=D:\AetherqorFoundry\research\blockers_v7_class_closure\ULTRA_RESEARCH_2026-09-05_CLASS_CLOSURE
+catalog=14 targeted video jobs with three-source fallback, 1fps raw frames, 3x3 contact sheets, transcripts/indexes, up to 4fps high-detail
+purpose=close 7-class architecture questions: tier textures, micro-props, enhancement bands, materials/draw calls, human recognition calibration
