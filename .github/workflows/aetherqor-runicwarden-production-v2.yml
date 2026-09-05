@@ -75,7 +75,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $blender='C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
           if(-not (Test-Path -LiteralPath $blender)){ throw 'Blender 5.2 missing.' }
-          & $blender --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\productionize_v2_donor.py" -- --donor $env:AQ_DONOR --body $env:AQ_BODY --sword $env:AQ_SWORD --shield $env:AQ_SHIELD --out $env:AQ_OUT
+          & $blender --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\productionize_v2_donor_fixed.py" -- --donor $env:AQ_DONOR --body $env:AQ_BODY --sword $env:AQ_SWORD --shield $env:AQ_SHIELD --out $env:AQ_OUT
           if($LASTEXITCODE -ne 0){ throw "Blender productionization exit=$LASTEXITCODE" }
 
       - name: Hard technical gate
