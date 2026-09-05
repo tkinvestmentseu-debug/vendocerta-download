@@ -1,0 +1,83 @@
+name: AETHERQOR FlyCat Semantic Review Pack
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/flycat_armor_forensics/SEMANTIC_REVIEW_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-flycat-semantic-review-pack
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 120
+    env:
+      ROOT: 'D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI'
+      TRIAGE: 'D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\low_token_triage'
+      OUT: 'D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\semantic_review_pack'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify source evidence
+        shell: pwsh
+        run: |
+          if(-not (Test-Path (Join-Path $env:ROOT '_FORENSICS_DONE.txt'))){ throw 'FlyCat forensic source not ready' }
+          if(-not (Test-Path (Join-Path $env:TRIAGE 'frame_clusters.csv'))){ throw 'FlyCat low-token triage not ready' }
+
+      - name: Locate pygeom Python
+        id: python
+        shell: pwsh
+        run: |
+          $candidates=@(
+            'D:\AetherqorFoundry\tools\pygeom\.venv\Scripts\python.exe',
+            'D:\AetherqorFoundry\tools\pygeom\Scripts\python.exe',
+            'D:\AetherqorFoundry\tools\pygeom\python.exe'
+          )
+          $py=$candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if(-not $py){ $cmd=Get-Command python -ErrorAction SilentlyContinue; if($cmd){$py=$cmd.Source} }
+          if(-not $py){ throw 'No Python interpreter found' }
+          "python=$py" >> $env:GITHUB_OUTPUT
+          & $py --version
+
+      - name: Build compact semantic review pack
+        shell: pwsh
+        run: |
+          $py='${{ steps.python.outputs.python }}'
+          & $py '.\tools\build-flycat-semantic-review-pack.py' `
+            --root $env:ROOT `
+            --triage-dir $env:TRIAGE `
+            --output-dir $env:OUT `
+            --overview-step-seconds 5 `
+            --tile-width 320 `
+            --jpeg-quality 72
+          if($LASTEXITCODE -ne 0){ throw 'Semantic review pack build failed' }
+
+      - name: Verify output size and files
+        shell: pwsh
+        run: |
+          $required=@('REVIEW_ORDER.md','frame_clusters.csv','cluster_context.csv','forensic_summary.json')
+          $missing=@($required | Where-Object { -not (Test-Path (Join-Path $env:OUT $_)) })
+          if($missing.Count -gt 0){ throw "Missing: $($missing -join ', ')" }
+          $overview=@(Get-ChildItem (Join-Path $env:OUT 'phase_overview_5s') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $peaks=@(Get-ChildItem (Join-Path $env:OUT 'cluster_peaks_6x6') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $triplets=@(Get-ChildItem (Join-Path $env:OUT 'cluster_triplets_3x6') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          if($overview -le 0 -or $peaks -le 0 -or $triplets -le 0){ throw "Bad sheet counts overview=$overview peaks=$peaks triplets=$triplets" }
+          $bytes=(Get-ChildItem $env:OUT -File -Recurse | Measure-Object Length -Sum).Sum
+          $mb=[Math]::Round($bytes/1MB,1)
+          Write-Host "SEMANTIC_REVIEW_READY overview=$overview peaks=$peaks triplets=$triplets size_mb=$mb"
+          if($bytes -gt 500MB){ throw "Semantic review pack too large for ChatGPT artifact download: ${mb}MB" }
+
+      - name: Upload compact semantic review artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_FLYCAT_SEMANTIC_REVIEW
+          path: D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\semantic_review_pack
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 6
