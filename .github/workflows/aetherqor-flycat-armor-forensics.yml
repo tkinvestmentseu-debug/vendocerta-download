@@ -1,0 +1,141 @@
+name: AETHERQOR FlyCat Armor Operation Forensics
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/flycat_armor_forensics/FORENSICS_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-flycat-armor-forensics
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  process:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 300
+    env:
+      ROOT: 'D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI'
+      VIDEO_ROOT: 'D:\AetherqorFoundry\research\flycat_armor_forensics'
+      URL: 'https://www.youtube.com/watch?v=hQhTGMk47qI'
+      SLUG: 'hQhTGMk47qI'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare forensic root
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:VIDEO_ROOT -Force | Out-Null
+          if(Test-Path $env:ROOT){
+            $done=Join-Path $env:ROOT '_FORENSICS_DONE.txt'
+            if(Test-Path $done){ Write-Host 'REUSE_COMPLETE_FLYCAT_FORENSICS'; exit 0 }
+          }
+          if(Test-Path $env:ROOT){ Remove-Item $env:ROOT -Recurse -Force }
+
+      - name: Baseline download plus 1fps evidence
+        shell: pwsh
+        run: |
+          & .\tools\process-aetherqor-video.ps1 `
+            -Url $env:URL `
+            -Slug $env:SLUG `
+            -Topic 'FlyCat armor modeling operation forensics' `
+            -Browser chrome `
+            -OutputRoot $env:VIDEO_ROOT `
+            -FrameFps 1 `
+            -HighDetailFps 4 `
+            -MaxHeight 1080 `
+            -HighDetailMaxSeconds 900
+
+      - name: Extract full-video dense 8fps operational evidence
+        shell: pwsh
+        run: |
+          $ffmpeg=(Get-Command ffmpeg -ErrorAction Stop).Source
+          $source=@(Get-ChildItem $env:ROOT -File | Where-Object { $_.BaseName -eq 'source' -and $_.Extension -match '^\.(mp4|mkv|webm|mov)$' } | Sort-Object Length -Descending | Select-Object -First 1)[0]
+          if(-not $source){ throw 'Source media missing' }
+          $dense=Join-Path $env:ROOT 'dense_frames_8fps'
+          $sheets=Join-Path $env:ROOT 'dense_sheets_8fps_6x6'
+          New-Item -ItemType Directory -Path $dense,$sheets -Force | Out-Null
+          & $ffmpeg -hide_banner -loglevel warning -y -i $source.FullName -vf 'fps=8,scale=-2:900' -q:v 5 (Join-Path $dense 'frame_%07d.jpg')
+          if($LASTEXITCODE -ne 0){ throw 'Dense 8fps extraction failed' }
+          $frames=@(Get-ChildItem $dense -Filter 'frame_*.jpg' -File | Sort-Object Name)
+          if($frames.Count -le 0){ throw 'Dense 8fps produced zero frames' }
+          $csv=New-Object System.Collections.Generic.List[string]
+          $csv.Add('frame,second,timecode')
+          for($i=0;$i -lt $frames.Count;$i++){
+            $sec=$i/8.0
+            $ts=[TimeSpan]::FromSeconds($sec)
+            $tc=('{0:00}:{1:00}:{2:00}.{3:000}' -f [int]$ts.TotalHours,$ts.Minutes,$ts.Seconds,$ts.Milliseconds)
+            $csv.Add(('"{0}",{1},"{2}"' -f $frames[$i].Name,$sec.ToString([Globalization.CultureInfo]::InvariantCulture),$tc))
+          }
+          $csv | Set-Content (Join-Path $env:ROOT 'dense_8fps_index.csv') -Encoding UTF8
+          & $ffmpeg -hide_banner -loglevel warning -y -framerate 8 -start_number 1 -i (Join-Path $dense 'frame_%07d.jpg') -vf 'scale=480:-2,tile=6x6:nb_frames=36:padding=3:margin=3' -fps_mode vfr -q:v 3 (Join-Path $sheets 'sheet_%05d.jpg')
+          if($LASTEXITCODE -ne 0){ throw 'Dense 8fps sheets failed' }
+          $sheetFiles=@(Get-ChildItem $sheets -Filter 'sheet_*.jpg' -File | Sort-Object Name)
+          $scsv=New-Object System.Collections.Generic.List[string]
+          $scsv.Add('sheet,start_second,end_second,start_timecode,end_timecode')
+          for($i=0;$i -lt $sheetFiles.Count;$i++){
+            $start=$i*36/8.0
+            $end=[Math]::Min((($i+1)*36-1)/8.0,($frames.Count-1)/8.0)
+            $a=[TimeSpan]::FromSeconds($start); $b=[TimeSpan]::FromSeconds($end)
+            $at=('{0:00}:{1:00}:{2:00}.{3:000}' -f [int]$a.TotalHours,$a.Minutes,$a.Seconds,$a.Milliseconds)
+            $bt=('{0:00}:{1:00}:{2:00}.{3:000}' -f [int]$b.TotalHours,$b.Minutes,$b.Seconds,$b.Milliseconds)
+            $scsv.Add(('"{0}",{1},{2},"{3}","{4}"' -f $sheetFiles[$i].Name,$start,$end,$at,$bt))
+          }
+          $scsv | Set-Content (Join-Path $env:ROOT 'dense_sheet_index.csv') -Encoding UTF8
+          Write-Host "FLYCAT_DENSE_READY frames=$($frames.Count) sheets=$($sheetFiles.Count)"
+
+      - name: Install handoff and reusable micro extractor locally
+        shell: pwsh
+        run: |
+          Copy-Item 'research/aetherqor/flycat_armor_forensics/TARGET.md' (Join-Path $env:ROOT 'TARGET.md') -Force
+          Copy-Item 'research/aetherqor/flycat_armor_forensics/CLAUDE_FLYCAT_OPERATION_HANDOFF.md' (Join-Path $env:ROOT 'CLAUDE_FLYCAT_OPERATION_HANDOFF.md') -Force
+          Copy-Item 'tools/extract-flycat-micro-segment.ps1' (Join-Path $env:ROOT 'extract_micro_segment.ps1') -Force
+          'seq,start_time,end_time,body_region,object,mode,selection_state,observed_ui_action,likely_blender_operator,hotkey_or_mouse,parameters,modifier_stack_before,modifier_stack_after,visible_result,confidence,evidence_frames,aetherqor_equivalent,automation_method' | Set-Content (Join-Path $env:ROOT 'FLYCAT_OPERATION_LEDGER_TEMPLATE.csv') -Encoding UTF8
+
+      - name: Verify forensic evidence
+        shell: pwsh
+        run: |
+          $base=@(Get-ChildItem (Join-Path $env:ROOT 'frames_1fps') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $baseSheets=@(Get-ChildItem (Join-Path $env:ROOT 'contact_sheets_3x3') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $dense=@(Get-ChildItem (Join-Path $env:ROOT 'dense_frames_8fps') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $denseSheets=@(Get-ChildItem (Join-Path $env:ROOT 'dense_sheets_8fps_6x6') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $required=@('manifest.json','frame_index.csv','sheet_index.csv','dense_8fps_index.csv','dense_sheet_index.csv','CLAUDE_FLYCAT_OPERATION_HANDOFF.md','TARGET.md')
+          $missing=@($required | Where-Object { -not (Test-Path (Join-Path $env:ROOT $_)) })
+          if($missing.Count -gt 0){ throw "Missing: $($missing -join ', ')" }
+          if($base -le 0 -or $baseSheets -le 0 -or $dense -le 0 -or $denseSheets -le 0){ throw "Invalid counts base=$base baseSheets=$baseSheets dense=$dense denseSheets=$denseSheets" }
+          @(
+            '# FLYCAT ARMOR FORENSICS READY',
+            '',
+            "base_1fps_frames=$base",
+            "base_3x3_sheets=$baseSheets",
+            "dense_8fps_frames=$dense",
+            "dense_8fps_6x6_sheets=$denseSheets",
+            "source_media_retained=true",
+            '',
+            'Claude: read CLAUDE_FLYCAT_OPERATION_HANDOFF.md and reconstruct the complete visible operation ledger before implementing the AETHERQOR pilot.'
+          ) | Set-Content (Join-Path $env:ROOT 'LOCAL_READY.md') -Encoding UTF8
+          "completed_utc=$([DateTime]::UtcNow.ToString('o'))" | Set-Content (Join-Path $env:ROOT '_FORENSICS_DONE.txt') -Encoding UTF8
+
+      - name: Upload review bundle for ChatGPT
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_FLYCAT_ARMOR_FORENSICS_REVIEW
+          path: |
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\TARGET.md
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\CLAUDE_FLYCAT_OPERATION_HANDOFF.md
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\LOCAL_READY.md
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\manifest.json
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\transcript.txt
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\TRANSCRIPT_MISSING.txt
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\frame_index.csv
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\sheet_index.csv
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\dense_8fps_index.csv
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\dense_sheet_index.csv
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\contact_sheets_3x3\*.jpg
+            D:\AetherqorFoundry\research\flycat_armor_forensics\hQhTGMk47qI\dense_sheets_8fps_6x6\*.jpg
+          retention-days: 14
+          if-no-files-found: warn
+          compression-level: 5
