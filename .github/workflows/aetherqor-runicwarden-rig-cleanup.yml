@@ -1,0 +1,81 @@
+name: AETHERQOR RunicWarden Rig Cleanup
+
+on:
+  workflow_run:
+    workflows: ["AETHERQOR RunicWarden Meshy Blender Build"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Locate completed source run and Blender
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $sourceRun='${{ github.event.workflow_run.id }}'
+          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\run_$sourceRun"
+          $models=Join-Path $root 'generated\models'
+          $final=Join-Path $root 'final_rig_clean'
+          if (-not (Test-Path -LiteralPath $models)) { throw "Generated models not found: $models" }
+          New-Item -ItemType Directory -Force -Path $final | Out-Null
+          $blender=@('C:\Program Files\Blender Foundation\Blender 5.2\blender.exe','C:\Program Files\Blender Foundation\Blender 5.1\blender.exe') | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $blender) { throw 'Blender not found.' }
+          "AQ_SOURCE_RUN=$sourceRun" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_SOURCE_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_MODELS=$models" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_FINAL_CLEAN=$final" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_BLENDER=$blender" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Verify rig exists before Blender
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $rig=Join-Path $env:AQ_MODELS 'Body_Rigged.glb'
+          if (-not (Test-Path -LiteralPath $rig)) { throw "RIG_REQUIRED: $rig missing" }
+          Write-Host "Rig source found: $rig"
+          foreach ($junk in @('Ring_L.glb','Ring_R.glb','Necklace.glb','Bracelet.glb','Ring_L.fbx','Ring_R.fbx','Necklace.fbx','Bracelet.fbx')) {
+            $p=Join-Path $env:AQ_MODELS $junk
+            if (Test-Path -LiteralPath $p) { Write-Host "IGNORED_JEWELRY=$p" }
+          }
+
+      - name: Reassemble clean rigged character without jewelry and without Meshy API
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:AQ_BLENDER --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\assemble_runic_warden.py" -- --input $env:AQ_MODELS --output $env:AQ_FINAL_CLEAN
+          if ($LASTEXITCODE -ne 0) { throw "Clean rig assembly exit=$LASTEXITCODE" }
+
+      - name: Stage clean final into Unity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $project='D:\Aetherfall - Realms of the Veil'
+          $dst=Join-Path $project 'Assets\Aetherqor\Art\Characters\RunicWarden\ChatGPT_FULL_MALE_V1_RIGGED'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Get-ChildItem -LiteralPath $env:AQ_FINAL_CLEAN -File | Where-Object { $_.Extension -in @('.fbx','.glb','.json') } | Copy-Item -Destination $dst -Force
+          "AQ_UNITY_CLEAN=$dst" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Package clean result
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $zip=Join-Path $env:AQ_SOURCE_ROOT 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_RIGGED_CLEAN.zip'
+          Compress-Archive -Path "$env:AQ_FINAL_CLEAN\*" -DestinationPath $zip -Force
+          "AQ_CLEAN_ZIP=$zip" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload rigged clean artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_RIGGED_CLEAN
+          path: |
+            ${{ env.AQ_FINAL_CLEAN }}\**\*
+            ${{ env.AQ_CLEAN_ZIP }}
+          retention-days: 14
+          if-no-files-found: error
