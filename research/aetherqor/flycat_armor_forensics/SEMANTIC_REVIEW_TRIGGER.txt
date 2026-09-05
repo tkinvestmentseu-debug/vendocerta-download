@@ -1,0 +1,2 @@
+START 2026-09-05
+Build compact semantic review pack from completed FlyCat 1fps/8fps forensic evidence and low-token clusters.
