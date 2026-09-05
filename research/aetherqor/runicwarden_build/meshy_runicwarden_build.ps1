@@ -87,7 +87,8 @@ function New-ImageBody {
   Add-TaskRecord 'Body' 'image-to-3d' $task
   Download-ModelUrls $task 'Body_Base'
 
-  Write-Log 'Creating BODY rigging task.'
+  # RIG = skeleton/armature for animation. This is mandatory.
+  Write-Log 'Creating BODY RIGGING task.'
   $rigCreated = Invoke-Meshy 'POST' '/openapi/v1/rigging' @{ input_task_id=$task.id; height_meters=1.78 }
   $rig = Wait-Task '/openapi/v1/rigging' $rigCreated.result 1800
   Add-TaskRecord 'Body' 'rigging' $rig
@@ -104,6 +105,14 @@ function New-ImageBody {
 }
 
 function New-Gear([string]$Name,[int]$Poly,[string]$Prompt,[bool]$Refine=$true) {
+  # REUSE BEFORE GENERATE: if the exact slot already exists in this production cache, do not spend credits again.
+  $existingGlb = Join-Path $ModelsDir "$Name.glb"
+  $existingFbx = Join-Path $ModelsDir "$Name.fbx"
+  if ((Test-Path -LiteralPath $existingGlb) -or (Test-Path -LiteralPath $existingFbx)) {
+    Write-Log "REUSE $Name: local generated model already exists."
+    return
+  }
+
   Write-Log "Creating $Name preview."
   $previewPayload = @{
     mode='preview'; model_type='standard'; ai_model='latest'; prompt=$Prompt; should_remesh=$true; topology='quad';
@@ -128,11 +137,12 @@ function New-Gear([string]$Name,[int]$Poly,[string]$Prompt,[bool]$Refine=$true) 
 $balanceStart = Get-Balance
 Write-Log "Meshy balance at start: $balanceStart"
 
-# Consistent Runic Warden art direction. No blue; warm runes only.
+# Runic Warden art direction. No jewelry generation. RIGGING means armature/skeleton, not rings.
 $common = 'Standalone wearable game asset for an athletic adult male 1.78m dark-fantasy Runic Warden. Realistic PBR, forged blackened iron, dark steel, restrained oxidized old-gold/brass trim, engraved geometric runes with subtle warm amber-white glow, premium battle-worn detail, clean silhouette, no blue, no text, no logo, no watermark, no body, no mannequin, centered at origin, front facing, production game asset.'
 
 New-ImageBody
 
+# COMPLETE GAMEPLAY GEAR ONLY. No Ring_L/R, necklace or bracelet.
 $gear = @(
   @{N='Helmet'; P=2200; Q="$common Closed/open-face knight helmet, fitted human head proportions, strong brow, modest rune crest, neck clearance, no giant horns."},
   @{N='ChestArmor'; P=4200; Q="$common Rigid torso breastplate shell with front and back plates, open neck and armholes, fitted waist, layered abdominal plates, no body inside."},
@@ -144,19 +154,14 @@ $gear = @(
   @{N='Cloak'; P=2200; Q="$common Heavy dark charcoal back cloak for a warrior, shoulder attachment points, split lower hem, subtle old-gold rune border, hanging vertically, no body."},
   @{N='Sword'; P=2400; Q="$common One-handed/hand-and-a-half runic longsword, straight forged blade, practical hilt and grip, warm amber rune engraving, isolated weapon."},
   @{N='Shield'; P=2600; Q="$common Medium runic knight shield, convex dark iron, reinforced old-gold rim, central geometric ward sigil, rear grip implied, isolated shield."},
-  @{N='Ring_L'; P=500; Q="$common Masculine signet ring, wearable human finger scale, blackened iron with tiny old-gold rune inset, complete ring opening, isolated jewelry."},
-  @{N='Ring_R'; P=500; Q="$common Masculine band ring, wearable human finger scale, dark steel with restrained engraved geometric rune and old-gold edge, complete opening, isolated jewelry."},
-  @{N='Necklace'; P=700; Q="$common Warrior necklace, dark metal chain/torc with compact runic ward pendant, wearable human neck scale, no bust, isolated jewelry."},
-  @{N='Bracelet'; P=650; Q="$common Rigid warrior wrist bracelet/cuff, dark steel and restrained old-gold runes, wearable human wrist opening, isolated jewelry."},
   @{N='ClassRelic'; P=1200; Q="$common Compact Runic Warden class relic: palm-sized ward stone in forged dark metal cage, geometric rune, subtle warm amber-white energy, attachable to chest or belt."}
 )
 
 foreach ($g in $gear) {
   $bal = Get-Balance
   if ($bal -ge 0 -and $bal -lt 25) { throw "Meshy balance too low before $($g.N): $bal" }
-  # If credits become tight, preserve geometry for tiny accessories rather than stopping the whole build.
   $refine = $true
-  if ($bal -ge 0 -and $bal -lt 120 -and $g.N -in @('Ring_L','Ring_R','Necklace','Bracelet','ClassRelic')) { $refine = $false }
+  if ($bal -ge 0 -and $bal -lt 100 -and $g.N -eq 'ClassRelic') { $refine = $false }
   New-Gear $g.N $g.P $g.Q $refine
 }
 
@@ -166,7 +171,8 @@ $Tasks | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $tasksPath -Encoding
 $summary = [ordered]@{
   started_at=$Start.ToUniversalTime().ToString('o'); finished_at=(Get-Date).ToUniversalTime().ToString('o');
   balance_start=$balanceStart; balance_end=$balanceEnd; total_recorded_credits=($Tasks | Measure-Object consumed_credits -Sum).Sum;
-  model_count=(Get-ChildItem $ModelsDir -File -Filter '*.glb').Count; output_root=$OutputRoot
+  model_count=(Get-ChildItem $ModelsDir -File -Filter '*.glb').Count; output_root=$OutputRoot;
+  requirement='RIGGED_CHARACTER_WITH_MODULAR_GAMEPLAY_GEAR'; jewelry_generation=$false
 }
 $summary | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $ReportsDir 'meshy_summary.json') -Encoding UTF8
 Write-Log "DONE. Balance end=$balanceEnd; recorded credits=$($summary.total_recorded_credits); GLB count=$($summary.model_count)"
