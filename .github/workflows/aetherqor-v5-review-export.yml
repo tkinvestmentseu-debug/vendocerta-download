@@ -19,6 +19,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install latest V5 analysis and handoff into local package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:LOCAL_ROOT -Force | Out-Null
+          $repoRoot = 'research/aetherqor/blockers_v5_architecture'
+          foreach($name in @('QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V5_RESEARCH_HANDOFF.md','videos.psv')) {
+            $p = Join-Path $repoRoot $name
+            if(Test-Path $p) { Copy-Item $p (Join-Path $env:LOCAL_ROOT $name) -Force }
+          }
+
       - name: Build visual review bundle from local V5 evidence
         shell: pwsh
         run: |
