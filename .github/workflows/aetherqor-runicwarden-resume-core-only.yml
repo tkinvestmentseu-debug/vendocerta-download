@@ -1,0 +1,95 @@
+name: AETHERQOR RunicWarden Resume Core Only
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/RESUME_CORE_TRIGGER.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aetherqor-runicwarden-meshy-blender-build
+  cancel-in-progress: true
+
+jobs:
+  resume:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare resume from previous run
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\run_33977323145'
+          if(-not (Test-Path -LiteralPath $source)){ throw "Source run not found: $source" }
+          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_$env:GITHUB_RUN_ID"
+          $gen=Join-Path $root 'generated'
+          $final=Join-Path $root 'final'
+          New-Item -ItemType Directory -Force -Path $root,$gen,$final | Out-Null
+          "AQ_SOURCE=$source" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_RUN_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_GEN=$gen" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_FINAL=$final" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          $blender='C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
+          if(-not (Test-Path -LiteralPath $blender)){ throw 'Blender 5.2 not found.' }
+          "AQ_BLENDER=$blender" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Resume required core assets only, no jewellery
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\resume_core_only.ps1" -SourceRunRoot $env:AQ_SOURCE -OutputRoot $env:AQ_GEN
+          if($LASTEXITCODE -ne 0){ throw "Resume generator exit=$LASTEXITCODE" }
+
+      - name: Enforce rig and no jewellery
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $models=Join-Path $env:AQ_GEN 'models'
+          foreach($n in @('Ring_L','Ring_R','Necklace','Bracelet')){
+            Get-ChildItem -LiteralPath $models -File -ErrorAction SilentlyContinue | Where-Object { $_.BaseName -eq $n } | Remove-Item -Force -ErrorAction SilentlyContinue
+          }
+          if(-not (Test-Path -LiteralPath (Join-Path $models 'Body_Rigged.glb'))){ throw 'Body_Rigged.glb required.' }
+
+      - name: Assemble in Blender
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:AQ_BLENDER --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\assemble_runic_warden.py" -- --input "$env:AQ_GEN\models" --output $env:AQ_FINAL
+          if($LASTEXITCODE -ne 0){ throw "Blender exit=$LASTEXITCODE" }
+
+      - name: Copy to Unity staging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dst='D:\Aetherfall - Realms of the Veil\Assets\Aetherqor\Art\Characters\RunicWarden\ChatGPT_FULL_MALE_V1'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Get-ChildItem -LiteralPath $env:AQ_FINAL -File | Where-Object { $_.Extension -in @('.fbx','.glb','.json') } | Copy-Item -Destination $dst -Force
+          "UNITY_STAGING=$dst" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Package final
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $zip=Join-Path $env:AQ_RUN_ROOT 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_CORE_ONLY.zip'
+          if(Test-Path -LiteralPath $env:AQ_FINAL){ Compress-Archive -Path "$env:AQ_FINAL\*","$env:AQ_GEN\reports\*" -DestinationPath $zip -Force }
+          "AQ_ZIP=$zip" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload core-only package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_CORE_ONLY
+          path: |
+            ${{ env.AQ_FINAL }}\**\*
+            ${{ env.AQ_GEN }}\reports\**\*
+            ${{ env.AQ_RUN_ROOT }}\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_CORE_ONLY.zip
+          retention-days: 14
+          if-no-files-found: warn
