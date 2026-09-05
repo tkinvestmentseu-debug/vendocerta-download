@@ -1,0 +1,66 @@
+name: AETHERQOR RunicWarden AAA Donor
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/AAA_DONOR_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-runicwarden-aaa-donor
+  cancel-in-progress: true
+
+jobs:
+  donor:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate coherent AAA Runic Warden donor in Meshy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\aaa_donor_$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          & "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\aaa_donor_rebuild.ps1" -OutputRoot $root
+          if(-not $?) { throw 'AAA donor script failed.' }
+          "AQ_AAA_DONOR=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Validate donor outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $must=@(
+            'model\RunicWarden_AAA_Donor_Source.glb',
+            'model\RunicWarden_AAA_Donor_Source.fbx',
+            'reports\SUMMARY.json',
+            'multiview\view_00.png',
+            'multiview\view_01.png',
+            'multiview\view_02.png'
+          )
+          foreach($f in $must){ if(-not (Test-Path -LiteralPath (Join-Path $env:AQ_AAA_DONOR $f))){ throw "AAA_DONOR_MISSING: $f" } }
+          Write-Host 'AAA_DONOR_VISUAL_GATE_READY'
+
+      - name: Upload lightweight visual gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_AAA_DONOR_VISUAL_GATE
+          path: |
+            ${{ env.AQ_AAA_DONOR }}\multiview\*.png
+            ${{ env.AQ_AAA_DONOR }}\model\thumb_*.png
+            ${{ env.AQ_AAA_DONOR }}\reports\*.json
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload donor models
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_AAA_DONOR_MODELS
+          path: |
+            ${{ env.AQ_AAA_DONOR }}\model\RunicWarden_AAA_Donor_Source.glb
+            ${{ env.AQ_AAA_DONOR }}\model\RunicWarden_AAA_Donor_Source.fbx
+          retention-days: 7
+          compression-level: 0
