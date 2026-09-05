@@ -1,0 +1,125 @@
+name: AETHERQOR RunicWarden Production V2
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/PRODUCTION_V2_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-runicwarden-production-v2
+  cancel-in-progress: true
+
+jobs:
+  production:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve existing donor body weapon shield without Meshy calls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $donor='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\aaa_donor_v2_33985461656\model\RunicWarden_AAA_Donor_V2.glb'
+          $body='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265\generated\models\Body_Rigged.glb'
+          if(-not (Test-Path -LiteralPath $donor)){ throw "V2 donor missing: $donor" }
+          if(-not (Test-Path -LiteralPath $body)){ throw "Rigged body missing: $body" }
+
+          $roots=@('D:\AetherqorPipeline','D:\Aetherfall - Realms of the Veil') | Where-Object { Test-Path -LiteralPath $_ }
+          function Find-Asset([string[]]$patterns){
+            foreach($r in $roots){
+              foreach($p in $patterns){
+                $f=Get-ChildItem -LiteralPath $r -Recurse -File -Filter $p -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Extension -eq '.glb' -and $_.FullName -notmatch 'FINALIZED|QUARANTINE' } |
+                  Sort-Object FullName |
+                  Select-Object -First 1
+                if($f){ return $f.FullName }
+              }
+            }
+            return $null
+          }
+          $sword=Find-Asset @('Aetherqor_RunicWarden_Oathblade_Standard_3D.glb','*RunicWarden*Oathblade*.glb','*RunicWarden*Sword*.glb')
+          $shield=Find-Asset @('Aetherqor_RunicWarden_AegisShield_Standard_3D.glb','*RunicWarden*Aegis*Shield*.glb','*RunicWarden*Shield*.glb')
+          if(-not $sword){
+            $cand='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265\generated\models\Sword.glb'
+            if(Test-Path -LiteralPath $cand){$sword=$cand}
+          }
+          if(-not $shield){
+            $cand='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265\generated\models\Shield.glb'
+            if(Test-Path -LiteralPath $cand){$shield=$cand}
+          }
+          if(-not $sword){ throw 'No existing Runic Warden sword found. Refusing duplicate Meshy generation.' }
+          if(-not $shield){ throw 'No existing Runic Warden shield found. Refusing duplicate Meshy generation.' }
+
+          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\production_v2_$env:GITHUB_RUN_ID"
+          $out=Join-Path $root 'final'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          "AQ_DONOR=$donor" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_BODY=$body" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_SWORD=$sword" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_SHIELD=$shield" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_OUT=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "DONOR=$donor"
+          Write-Host "BODY=$body"
+          Write-Host "SWORD=$sword"
+          Write-Host "SHIELD=$shield"
+          Write-Host 'MESHY_CALLS=0'
+
+      - name: Segment donor semantically fit to rigged body and build production quarantine
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $blender='C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
+          if(-not (Test-Path -LiteralPath $blender)){ throw 'Blender 5.2 missing.' }
+          & $blender --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\productionize_v2_donor.py" -- --donor $env:AQ_DONOR --body $env:AQ_BODY --sword $env:AQ_SWORD --shield $env:AQ_SHIELD --out $env:AQ_OUT
+          if($LASTEXITCODE -ne 0){ throw "Blender productionization exit=$LASTEXITCODE" }
+
+      - name: Hard technical gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $qa=Join-Path $env:AQ_OUT 'reports\production_qa.json'
+          if(-not (Test-Path -LiteralPath $qa)){ throw 'QA report missing.' }
+          $j=Get-Content -LiteralPath $qa -Raw | ConvertFrom-Json
+          if([int]$j.bones -lt 15){ throw "RIG_FAIL bones=$($j.bones)" }
+          if($j.missing.Count -gt 0){ throw "MISSING_SLOTS: $($j.missing -join ',')" }
+          if([int]$j.total_gameplay_tris -gt 40000){ throw "MOBILE_BUDGET_FAIL tris=$($j.total_gameplay_tris)" }
+          foreach($s in @('Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak')){
+            if(-not ($j.slots.PSObject.Properties.Name -contains $s)){ throw "SLOT_FAIL $s" }
+          }
+          Write-Host "TECH_GATE_PASS tris=$($j.total_gameplay_tris) bones=$($j.bones) loose=$($j.donor_loose_parts)"
+
+      - name: Copy only to quarantine staging
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $dst='D:\Aetherfall - Realms of the Veil\Assets\Aetherqor\Art\Characters\RunicWarden\ChatGPT_AAA_V2_QUARANTINE'
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Get-ChildItem -LiteralPath $env:AQ_OUT -File | Where-Object { $_.Extension -in @('.fbx','.glb','.json') } | Copy-Item -Destination $dst -Force
+          Write-Host "QUARANTINE_STAGING=$dst"
+
+      - name: Upload lightweight visual gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_AAA_V2_PRODUCTION_VISUAL_GATE
+          path: |
+            ${{ env.AQ_OUT }}\renders\*.png
+            ${{ env.AQ_OUT }}\reports\*.json
+            ${{ env.AQ_OUT }}\MANIFEST.json
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload production quarantine models
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_AAA_V2_PRODUCTION_MODELS
+          path: |
+            ${{ env.AQ_OUT }}\AETHERQOR_RUNIC_WARDEN_AAA_V2_PRODUCTION.glb
+            ${{ env.AQ_OUT }}\AETHERQOR_RUNIC_WARDEN_AAA_V2_PRODUCTION.fbx
+            ${{ env.AQ_OUT }}\AETHERQOR_RUNIC_WARDEN_AAA_V2_PRODUCTION.blend
+          retention-days: 7
+          compression-level: 0
