@@ -1,0 +1,41 @@
+seq,cluster_id,timecode,phase,region,category,likely_operation,confidence,aetherqor_equivalent
+1,C0043,00:03:05.250,P02,torso,TOPOLOGY,Local vertex or edge transform on chest plate boundary,OBSERVED,Encode chest plate boundary before smoothing
+2,C0048,00:03:28.000,P02,helmet,TOPOLOGY,Local vertex or edge refinement around eye and nose opening,OBSERVED,Preserve authored face aperture and clearance
+3,C0050,00:03:35.125,P02,neck_chin,TRANSFORM,Fit chin and neck guard beneath helmet,INFERRED_HIGH,Maintain jaw and neck deformation gap
+4,C0053,00:03:43.875,P02,helmet_attachment,OBJECT_FIT,Fit circular temple attachment and lower helmet flaps,INFERRED_HIGH,Use explicit attachment anchors
+5,C0145,00:09:27.125,P04,gauntlet_fingers,OBJECT_BUILD,Create and fit one fingertip armor element,OBSERVED,Build finger plates as repeated modular pieces
+6,C0146,00:09:29.500,P04,gauntlet_fingers,REPEAT_DUPLICATE,Repeat fingertip plates across digits,INFERRED_HIGH,Parameterize repeated finger plates
+7,C0149,00:09:48.625,P04,hip_ornament,OBJECT_BUILD,Isolate and shape a separate wing-like hip ornament,OBSERVED,Keep hip ornament detachable
+8,C0157,00:10:18.875,P04,skirt_hip,OBJECT_BUILD,Create or duplicate a separate skirt or hip plate shell,INFERRED_HIGH,Use modular skirt plate library
+9,C0160,00:10:35.500,P04,hip_wing,TOPOLOGY,Refine edge flow on wing-like hip plate,OBSERVED,Author feature boundary before thickness and finish
+10,C0162,00:10:39.875,P04,thigh,TOPOLOGY,Local thigh-plate vertex or edge shaping,OBSERVED,Use thigh deformation clearance envelope
+11,C0187,00:11:58.000,P04,greave,TOPOLOGY,Refine greave topology while preserving central ridge,OBSERVED,Protect shin ridge through LOD
+12,C0205,00:12:49.125,P05,torso_side,TOPOLOGY,Refine layered torso-side plate bands with explicit edge loops,OBSERVED,Encode overlapping plate bands as separate features
+13,C0208,00:12:56.375,P05,chest,OBJECT_SELECTION,Isolate chest armor for local edit then reintegrate,OBSERVED,Keep chest plates as addressable components
+14,C0254,00:15:43.250,P06,circular_ornament,SHAPE_REFINEMENT,Raise and finish circular waist boss or ring,INFERRED_HIGH,Use parametric ring or boss generator
+15,C0258,00:15:56.250,P06,helmet_cheek,TOPOLOGY,Refine cheek and nose plate around face opening,OBSERVED,Protect face clearance and cheek silhouette
+16,C0277,00:16:56.875,P06,helmet_detail,SELECTION,Select and refine crown ridge strips or curves,OBSERVED,Implement crown ridges as explicit secondary features
+17,C0362,00:23:29.750,P07,ornament,DETAIL_FIT,Fit curved ornament into larger armor motif,OBSERVED,Do ornament pass after macro plate form
+18,C0363,00:23:33.500,P07,ornament,DETAIL_SHAPE,Refine pointed central decorative motif,OBSERVED,Keep ornament independent from shell
+19,C0373,00:24:51.250,P07,engraved_ornament,DETAIL_REVIEW,Inspect raised or engraved swirl detail on armor strips,OBSERVED,Use geometry for silhouette-scale relief and bake smaller detail
+20,C0375,00:24:58.375,P08,attachment,OBJECT_BUILD,Create a long narrow strap or attachment as separate piece,OBSERVED,Keep straps separate for rig or cloth decisions
+21,C0382,00:25:54.250,P08,skirt_uv,UV_SELECTION,Select skirt or hip subset while matching UV islands,OBSERVED,Start UV only after geometry maturity
+22,C0383,00:25:57.500,P08,cloth_uv,UV_LAYOUT,Select and pack cloth or skirt islands,OBSERVED,Preserve texel density and grouping per slot
+23,C0404,00:27:53.500,P09,asset_handoff,FILE_IO,Load external texture or material assets,OBSERVED,Record source file hashes and import settings
+24,C0408,00:28:04.375,P09,helmet_material,MATERIAL_NODE,Set up helmet material in shader graph,OBSERVED,Map source PBR data deterministically to Unity URP
+25,C0415,00:28:33.625,P09,full_material,MATERIAL_LOOKDEV,Inspect full armor with shader graph active,OBSERVED,Require full-character material consistency pass
+26,C0598,00:44:26.125,P12,rig_setup,ARMATURE_SETUP,Switch to armature context and inspect armor against rig,OBSERVED,Attach armor to canonical AETHERQOR skeleton
+27,C0606,00:44:47.750,P12,pose_test,POSE_TEST,Validate armor in posed or kneeling state,OBSERVED,Require non-bind-pose QA before slot acceptance
+28,C0609,00:45:04.375,P12,shoulder,WEIGHT_PAINT,Adjust or inspect weight paint over shoulder and upper arm,OBSERVED,Use rigid-zone shoulder weighting and deformation tests
+29,C0611,00:45:47.375,P12,chest,WEIGHT_PAINT,Adjust or inspect chest and upper torso weights,OBSERVED,Keep rigid plate zones minimally weighted
+30,C0614,00:46:13.875,P12,neck_head,WEIGHT_RIG_CHECK,Inspect neck and head weighting under helmet,OBSERVED,Helmet follows head bone with explicit neck clearance
+31,C0616,00:46:20.000,P12,leg_pose,POSE_TEST,Inspect lower-body armor in leg pose,OBSERVED,Test hip and knee extremes with skirt and thigh plates
+32,C0621,00:47:52.000,P12,hand_weapon,GRIP_TEST,Validate armored hand gripping weapon shaft,OBSERVED,Test gauntlet and weapon socket together
+33,C0624,00:49:36.625,P13,weapon_head,TOPOLOGY,Refine weapon-head central opening and surrounding topology,OBSERVED,Build major negative space explicitly
+34,C0627,00:49:41.250,P13,weapon_head,TOPOLOGY,Refine inner diamond rim and support topology,OBSERVED,Preserve manifold opening and edge width
+35,C0629,00:50:12.125,P13,weapon_attachment,OBJECT_FIT,Fit curved side attachment at weapon-head transition,OBSERVED,Keep side guard as separate subcomponent until finalization
+36,C0631,00:50:36.875,P13,weapon_attachment,SYMMETRY_FIT,Paired side attachments appear symmetrically,INFERRED_HIGH,Use deterministic mirror for symmetric weapon attachments
+37,C0635,00:52:04.875,P13,weapon_shaft,OBJECT_BUILD,Build shaft transition or collar as clean low-poly form,OBSERVED,Use parametric shaft and collar generator
+38,C0636,00:52:33.500,P13,weapon_full,ASSEMBLY,Assemble weapon head shaft and grip,OBSERVED,Store head shaft and grip as modular authoring parts
+39,C0639,00:54:37.875,P14,weapon_material,MATERIAL_SETUP,Assign materials to weapon subparts,OBSERVED,Maintain material IDs per weapon subpart
+40,C0642,00:55:03.875,P14,weapon_full,MATERIAL_NODE,Finalize weapon shader graph,OBSERVED,Convert deterministically to Unity URP PBR
