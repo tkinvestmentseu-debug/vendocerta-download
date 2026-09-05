@@ -1,0 +1,62 @@
+name: AETHERQOR RunicWarden QA Pack
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/QA_TRIGGER.txt'
+  workflow_dispatch:
+
+jobs:
+  qa:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect lightweight QA pack from finalized build
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $src='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\finalize_33980393094\final'
+          if(-not (Test-Path -LiteralPath $src)){ throw "Final build not found: $src" }
+          $out=Join-Path $env:RUNNER_TEMP 'runicwarden_qa_pack'
+          Remove-Item -LiteralPath $out -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          New-Item -ItemType Directory -Force -Path (Join-Path $out 'renders'),(Join-Path $out 'reports') | Out-Null
+
+          foreach($f in @('AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1_MANIFEST.json')){
+            $p=Join-Path $src $f
+            if(Test-Path -LiteralPath $p){ Copy-Item -LiteralPath $p -Destination $out -Force }
+          }
+          Get-ChildItem -LiteralPath (Join-Path $src 'renders') -File -ErrorAction SilentlyContinue | Copy-Item -Destination (Join-Path $out 'renders') -Force
+          Get-ChildItem -LiteralPath (Join-Path $src 'reports') -File -ErrorAction SilentlyContinue | Copy-Item -Destination (Join-Path $out 'reports') -Force
+
+          $files=Get-ChildItem -LiteralPath $src -Recurse -File | Select-Object FullName,Length,LastWriteTime
+          $files | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $out 'file_inventory.json') -Encoding UTF8
+          $files | Sort-Object Length -Descending | Select-Object -First 50 | Format-Table -AutoSize | Out-String -Width 4096 | Set-Content -LiteralPath (Join-Path $out 'largest_files.txt') -Encoding UTF8
+
+          $qaPath=Join-Path $src 'reports\assembly_qa.json'
+          if(Test-Path -LiteralPath $qaPath){
+            $qa=Get-Content -LiteralPath $qaPath -Raw | ConvertFrom-Json
+            $summary=[ordered]@{
+              armature=$qa.armature
+              bones=$qa.bones
+              body_height_m=$qa.body_height_m
+              total_triangles=$qa.total_triangles
+              materials=$qa.materials
+              missing_slots=$qa.missing_slots
+              slots=$qa.slots
+              sockets=$qa.sockets
+              jewelry_generated_or_expected=$qa.jewelry_generated_or_expected
+            }
+            $summary | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath (Join-Path $out 'qa_summary.json') -Encoding UTF8
+          }
+
+      - name: Upload lightweight QA pack
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_QA_PACK
+          path: ${{ runner.temp }}\runicwarden_qa_pack\**\*
+          retention-days: 7
+          if-no-files-found: error
+          compression-level: 0
