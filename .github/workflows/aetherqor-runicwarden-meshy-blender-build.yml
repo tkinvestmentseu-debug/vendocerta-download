@@ -1,0 +1,127 @@
+name: AETHERQOR RunicWarden Meshy Blender Build
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/TRIGGER.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aetherqor-runicwarden-meshy-blender-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Prepare production run
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $root = "D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\run_$env:GITHUB_RUN_ID"
+          $gen = Join-Path $root 'generated'
+          $final = Join-Path $root 'final'
+          New-Item -ItemType Directory -Force -Path $root,$gen,$final | Out-Null
+          "AQ_RUN_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_GEN=$gen" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_FINAL=$final" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          $blender = @(
+            'C:\Program Files\Blender Foundation\Blender 5.2\blender.exe',
+            'C:\Program Files\Blender Foundation\Blender 5.1\blender.exe'
+          ) | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if (-not $blender) {
+            $blender = Get-ChildItem 'C:\Program Files\Blender Foundation' -Recurse -Filter blender.exe -File -ErrorAction SilentlyContinue |
+              Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $blender) { throw 'Blender executable not found.' }
+          "AQ_BLENDER=$blender" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          & $blender --version | Select-Object -First 1
+          if ([string]::IsNullOrWhiteSpace($env:MESHY_API_KEY)) { throw 'MESHY_API_KEY not available to self-hosted runner.' }
+
+      - name: Generate body and complete modular Runic Warden gear through Meshy API
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $body='https://d2ol7oe51mr4n9.cloudfront.net/user_3GIsPqjyHCX7dwJRn8e5M98bAE1/2d61f29f-b06b-4698-8f30-0207f4ec80f2.png'
+          & "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\meshy_runicwarden_build.ps1" -OutputRoot $env:AQ_GEN -BodyImageUrl $body
+          if ($LASTEXITCODE -ne 0) { throw "Meshy generator exit=$LASTEXITCODE" }
+
+      - name: Assemble, fit, weight, socket, render and export in Blender
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          & $env:AQ_BLENDER --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\assemble_runic_warden.py" -- --input "$env:AQ_GEN\models" --output $env:AQ_FINAL
+          if ($LASTEXITCODE -ne 0) { throw "Blender assembly exit=$LASTEXITCODE" }
+
+      - name: Copy final model into Unity project staging area
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $project='D:\Aetherfall - Realms of the Veil'
+          if (Test-Path -LiteralPath $project) {
+            $dst=Join-Path $project 'Assets\Aetherqor\Art\Characters\RunicWarden\ChatGPT_FULL_MALE_V1'
+            New-Item -ItemType Directory -Force -Path $dst | Out-Null
+            Get-ChildItem -LiteralPath $env:AQ_FINAL -File | Where-Object { $_.Extension -in @('.fbx','.glb','.json') } | Copy-Item -Destination $dst -Force
+            "UNITY_STAGING=$dst" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          }
+
+      - name: Build final summary and ZIP
+        if: always()
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Continue'
+          $summaryDir=Join-Path $env:GITHUB_WORKSPACE 'research\aetherqor\runicwarden_build'
+          $latest=Join-Path $summaryDir 'LATEST_BUILD.txt'
+          $status = if (Test-Path -LiteralPath (Join-Path $env:AQ_FINAL 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.blend')) {'PASS_FILES_CREATED'} else {'FAILED_OR_INCOMPLETE'}
+          $meshSummary=Join-Path $env:AQ_GEN 'reports\meshy_summary.json'
+          $qa=Join-Path $env:AQ_FINAL 'reports\assembly_qa.json'
+          @(
+            "TimestampUtc=$([DateTime]::UtcNow.ToString('o'))",
+            "GitHubRunId=$env:GITHUB_RUN_ID",
+            "Machine=$env:COMPUTERNAME",
+            "Status=$status",
+            "RunRoot=$env:AQ_RUN_ROOT",
+            "Generated=$env:AQ_GEN",
+            "Final=$env:AQ_FINAL",
+            "UnityStaging=$env:UNITY_STAGING",
+            "BlendExists=$(Test-Path -LiteralPath (Join-Path $env:AQ_FINAL 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.blend'))",
+            "FbxExists=$(Test-Path -LiteralPath (Join-Path $env:AQ_FINAL 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.fbx'))",
+            "GlbExists=$(Test-Path -LiteralPath (Join-Path $env:AQ_FINAL 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.glb'))",
+            "MeshySummaryExists=$(Test-Path -LiteralPath $meshSummary)",
+            "QaExists=$(Test-Path -LiteralPath $qa)"
+          ) | Set-Content -LiteralPath $latest -Encoding UTF8
+          if (Test-Path -LiteralPath $meshSummary) { Add-Content $latest "`n=== MESHY SUMMARY ==="; Get-Content $meshSummary | Add-Content $latest }
+          if (Test-Path -LiteralPath $qa) { Add-Content $latest "`n=== ASSEMBLY QA ==="; Get-Content $qa | Add-Content $latest }
+
+          $zip=Join-Path $env:AQ_RUN_ROOT 'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.zip'
+          if (Test-Path -LiteralPath $env:AQ_FINAL) {
+            Compress-Archive -Path "$env:AQ_FINAL\*","$env:AQ_GEN\reports\*" -DestinationPath $zip -Force
+          }
+          "AQ_ZIP=$zip" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add 'research/aetherqor/runicwarden_build/LATEST_BUILD.txt'
+          git diff --cached --quiet
+          if ($LASTEXITCODE -ne 0) { git commit -m 'Publish latest Runic Warden production build status'; git push origin HEAD:main }
+
+      - name: Upload complete Runic Warden production package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1
+          path: |
+            ${{ env.AQ_FINAL }}\**\*
+            ${{ env.AQ_GEN }}\reports\**\*
+            ${{ env.AQ_RUN_ROOT }}\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V1.zip
+          retention-days: 14
+          if-no-files-found: warn
