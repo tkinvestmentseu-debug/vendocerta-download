@@ -1,0 +1,65 @@
+name: AETHERQOR V7 Visual Review Export
+
+on:
+  workflow_run:
+    workflows: ["AETHERQOR Blockers V7 Class Closure Ultra Research"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export_review:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 60
+    env:
+      LOCAL_ROOT: 'D:\AetherqorFoundry\research\blockers_v7_class_closure\ULTRA_RESEARCH_2026-09-05_CLASS_CLOSURE'
+      EXPORT_ROOT: 'D:\AetherqorFoundry\research\blockers_v7_class_closure\CHATGPT_V7_REVIEW_EXPORT'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build review export from every available V7 set
+        shell: pwsh
+        run: |
+          if(Test-Path $env:EXPORT_ROOT) { Remove-Item $env:EXPORT_ROOT -Recurse -Force }
+          New-Item -ItemType Directory -Path $env:EXPORT_ROOT -Force | Out-Null
+          $rows=Get-Content 'research/aetherqor/blockers_v7_class_closure/videos.psv' | Where-Object { $_ -and -not $_.StartsWith('#') }
+          $report=New-Object System.Collections.Generic.List[string]
+          $report.Add('# AETHERQOR V7 CHATGPT VISUAL REVIEW EXPORT')
+          $report.Add('')
+          $complete=0
+          foreach($line in $rows) {
+            $slug=($line -split '\|',5)[0]
+            $src=Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $slug
+            $dst=Join-Path (Join-Path $env:EXPORT_ROOT 'videos') $slug
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+            foreach($file in @('manifest.json','duration_seconds.txt','transcript.txt','transcript_source.txt','frame_index.csv','sheet_index.csv','high_detail_index.csv','selected_source_url.txt','selected_source_label.txt','_DONE.txt','INHERITED_FROM_V5.txt')) {
+              $p=Join-Path $src $file
+              if(Test-Path $p) { Copy-Item $p (Join-Path $dst $file) -Force }
+            }
+            $sheetSrc=Join-Path $src 'contact_sheets_3x3'
+            if(Test-Path $sheetSrc) { Copy-Item $sheetSrc (Join-Path $dst 'contact_sheets_3x3') -Recurse -Force }
+            $fc=@(Get-ChildItem (Join-Path $src 'frames_1fps') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $sc=@(Get-ChildItem $sheetSrc -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $hc=@(Get-ChildItem (Join-Path $src 'high_detail_4fps') -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $done=Test-Path (Join-Path $src '_DONE.txt')
+            if($done -and $fc -gt 0 -and $sc -gt 0) { $complete++ }
+            $report.Add("- $slug done=$done frames1fps=$fc sheets3x3=$sc frames4fps=$hc")
+          }
+          foreach($name in @('LOCAL_READY.md','FINAL_STATUS.md','QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V7_RESEARCH_HANDOFF.md','videos.psv')) {
+            $p=Join-Path $env:LOCAL_ROOT $name
+            if(Test-Path $p) { Copy-Item $p (Join-Path $env:EXPORT_ROOT $name) -Force }
+          }
+          $report.Add('')
+          $report.Add("complete_video_sets=$complete/$($rows.Count)")
+          $report | Set-Content (Join-Path $env:EXPORT_ROOT 'REVIEW_EXPORT_STATUS.md') -Encoding UTF8
+
+      - name: Upload V7 ChatGPT visual review bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V7_CHATGPT_VISUAL_REVIEW
+          path: D:\AetherqorFoundry\research\blockers_v7_class_closure\CHATGPT_V7_REVIEW_EXPORT
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 6
