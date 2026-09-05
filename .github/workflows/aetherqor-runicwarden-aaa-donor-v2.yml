@@ -1,0 +1,68 @@
+name: AETHERQOR RunicWarden AAA Donor V2
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/AAA_DONOR_V2_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-runicwarden-aaa-donor-v2
+  cancel-in-progress: true
+
+jobs:
+  donor_v2:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Refine current coherent donor to AAA V2 in Meshy
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\aaa_donor_33982300005'
+          if(-not (Test-Path -LiteralPath $source)){ throw "Source donor missing: $source" }
+          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\aaa_donor_v2_$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          & "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\aaa_donor_v2_refine.ps1" -SourceRoot $source -OutputRoot $root
+          if(-not $?){ throw 'AAA donor V2 script failed.' }
+          "AQ_AAA_DONOR_V2=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Validate V2 outputs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $must=@(
+            'model\RunicWarden_AAA_Donor_V2.glb',
+            'model\RunicWarden_AAA_Donor_V2.fbx',
+            'reports\SUMMARY.json',
+            'multiview\view_00.png',
+            'multiview\view_01.png',
+            'multiview\view_02.png'
+          )
+          foreach($f in $must){ if(-not (Test-Path -LiteralPath (Join-Path $env:AQ_AAA_DONOR_V2 $f))){ throw "AAA_DONOR_V2_MISSING: $f" } }
+          Write-Host 'AAA_DONOR_V2_VISUAL_GATE_READY'
+
+      - name: Upload V2 visual gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_AAA_DONOR_V2_VISUAL_GATE
+          path: |
+            ${{ env.AQ_AAA_DONOR_V2 }}\multiview\*.png
+            ${{ env.AQ_AAA_DONOR_V2 }}\model\thumb_*.png
+            ${{ env.AQ_AAA_DONOR_V2 }}\reports\*.json
+          retention-days: 7
+          compression-level: 0
+
+      - name: Upload V2 donor models
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_AAA_DONOR_V2_MODELS
+          path: |
+            ${{ env.AQ_AAA_DONOR_V2 }}\model\RunicWarden_AAA_Donor_V2.glb
+            ${{ env.AQ_AAA_DONOR_V2 }}\model\RunicWarden_AAA_Donor_V2.fbx
+          retention-days: 7
+          compression-level: 0
