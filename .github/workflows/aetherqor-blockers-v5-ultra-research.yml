@@ -1,0 +1,284 @@
+name: AETHERQOR Blockers V5 Architecture Ultra Research
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/blockers_v5_architecture/V5_TRIGGER.txt'
+  workflow_dispatch:
+    inputs:
+      video_filter:
+        description: "all or one slug"
+        required: true
+        default: "all"
+        type: string
+
+concurrency:
+  group: aetherqor-blockers-v5-architecture-ultra-research
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      catalog_count: ${{ steps.matrix.outputs.catalog_count }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: matrix
+        name: Build V5 video matrix
+        env:
+          FILTER: ${{ inputs.video_filter || 'all' }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          filt=(os.environ.get('FILTER') or 'all').strip()
+          catalog=[]
+          chosen=[]
+          with open('research/aetherqor/blockers_v5_architecture/videos.psv', encoding='utf-8') as f:
+              for raw in f:
+                  line=raw.rstrip('\n')
+                  if not line.strip() or line.lstrip().startswith('#'):
+                      continue
+                  parts=line.split('|',3)
+                  if len(parts)!=4:
+                      raise SystemExit('Bad videos.psv row: '+line)
+                  slug,url,fallback,topic=parts
+                  row={'slug':slug,'url':url,'fallback':fallback,'topic':topic}
+                  catalog.append(row)
+                  if filt=='all' or slug==filt:
+                      chosen.append(row)
+          if not chosen:
+              raise SystemExit('No videos selected')
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as o:
+              o.write('matrix='+json.dumps({'include':chosen},separators=(',',':'))+'\n')
+              o.write('catalog_count='+str(len(catalog))+'\n')
+          print(json.dumps({'include':chosen},indent=2))
+          PY
+
+  process:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 240
+    env:
+      LOCAL_ROOT: 'D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare or reuse direct local target
+        shell: pwsh
+        env:
+          VIDEO_SLUG: ${{ matrix.slug }}
+        run: |
+          $videos = Join-Path $env:LOCAL_ROOT 'videos'
+          New-Item -ItemType Directory -Path $videos -Force | Out-Null
+          $root = Join-Path $videos $env:VIDEO_SLUG
+          $done = Join-Path $root '_DONE.txt'
+          $frames = Join-Path $root 'frames_1fps'
+          $sheets = Join-Path $root 'contact_sheets_3x3'
+          $isComplete = (Test-Path $done) -and (@(Get-ChildItem $frames -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count -gt 0) -and (@(Get-ChildItem $sheets -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count -gt 0)
+          if($isComplete) {
+            Write-Host "REUSE_COMPLETE_LOCAL_SET $env:VIDEO_SLUG"
+          } else {
+            if(Test-Path $root) { Remove-Item $root -Recurse -Force }
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+          }
+
+      - name: Process video directly to D drive with fallback
+        shell: pwsh
+        env:
+          VIDEO_URL: ${{ matrix.url }}
+          FALLBACK_URL: ${{ matrix.fallback }}
+          VIDEO_SLUG: ${{ matrix.slug }}
+          VIDEO_TOPIC: ${{ matrix.topic }}
+        run: |
+          $videos = Join-Path $env:LOCAL_ROOT 'videos'
+          $root = Join-Path $videos $env:VIDEO_SLUG
+          $done = Join-Path $root '_DONE.txt'
+          $frames = Join-Path $root 'frames_1fps'
+          $sheets = Join-Path $root 'contact_sheets_3x3'
+          $isComplete = (Test-Path $done) -and (@(Get-ChildItem $frames -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count -gt 0) -and (@(Get-ChildItem $sheets -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count -gt 0)
+          if($isComplete) {
+            Write-Host "SKIP_ALREADY_COMPLETE $env:VIDEO_SLUG"
+            exit 0
+          }
+
+          function Invoke-ResearchVideo([string]$url,[string]$label) {
+            if([string]::IsNullOrWhiteSpace($url)) { return $false }
+            if(Test-Path $root) { Remove-Item $root -Recurse -Force }
+            New-Item -ItemType Directory -Path $root -Force | Out-Null
+            try {
+              Write-Host "VIDEO_ATTEMPT label=$label url=$url"
+              & .\tools\process-aetherqor-video.ps1 `
+                -Url $url `
+                -Slug $env:VIDEO_SLUG `
+                -Topic $env:VIDEO_TOPIC `
+                -Browser chrome `
+                -OutputRoot $videos `
+                -FrameFps 1 `
+                -HighDetailFps 4 `
+                -MaxHeight 1080 `
+                -HighDetailMaxSeconds 600
+              return $true
+            } catch {
+              Write-Warning "VIDEO_ATTEMPT_FAILED label=$label url=$url error=$($_.Exception.Message)"
+              return $false
+            }
+          }
+
+          $ok = Invoke-ResearchVideo $env:VIDEO_URL 'primary'
+          $used = $env:VIDEO_URL
+          if(-not $ok -and -not [string]::IsNullOrWhiteSpace($env:FALLBACK_URL)) {
+            $ok = Invoke-ResearchVideo $env:FALLBACK_URL 'fallback'
+            $used = $env:FALLBACK_URL
+          }
+          if(-not $ok) { throw "Both primary and fallback failed for $env:VIDEO_SLUG" }
+          $used | Set-Content (Join-Path $root 'selected_source_url.txt') -Encoding UTF8
+
+      - name: Remove source media and verify local evidence
+        shell: pwsh
+        env:
+          VIDEO_SLUG: ${{ matrix.slug }}
+        run: |
+          $root = Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $env:VIDEO_SLUG
+          foreach($pattern in @('source.mp4','source.mkv','source.webm','source.mov','source_normalized.mkv')) {
+            $p = Join-Path $root $pattern
+            if(Test-Path $p) { Remove-Item $p -Force }
+          }
+          $frameCount = @(Get-ChildItem (Join-Path $root 'frames_1fps') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $sheetCount = @(Get-ChildItem (Join-Path $root 'contact_sheets_3x3') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $highCount = @(Get-ChildItem (Join-Path $root 'high_detail_4fps') -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+          $required = @('manifest.json','frame_index.csv','sheet_index.csv','duration_seconds.txt')
+          $missing = @($required | Where-Object { -not (Test-Path (Join-Path $root $_)) })
+          if($missing.Count -gt 0) { throw "Missing required evidence: $($missing -join ', ')" }
+          if($frameCount -le 0) { throw 'Zero 1fps frames produced.' }
+          if($sheetCount -le 0) { throw 'Zero 3x3 contact sheets produced.' }
+          $source = if(Test-Path (Join-Path $root 'selected_source_url.txt')) { (Get-Content (Join-Path $root 'selected_source_url.txt') -First 1).Trim() } else { 'reused-existing' }
+          @(
+            "slug=$env:VIDEO_SLUG",
+            "source_url=$source",
+            "frames_1fps=$frameCount",
+            "sheets_3x3=$sheetCount",
+            "high_detail_4fps=$highCount",
+            "completed_utc=$([DateTime]::UtcNow.ToString('o'))"
+          ) | Set-Content (Join-Path $root '_DONE.txt') -Encoding UTF8
+          Write-Host "DIRECT_LOCAL_VIDEO_READY slug=$env:VIDEO_SLUG frames=$frameCount sheets=$sheetCount high=$highCount"
+
+      - name: Upload lightweight monitoring metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: aqv5-${{ matrix.slug }}-meta
+          path: |
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\manifest.json
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\frame_index.csv
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\sheet_index.csv
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\high_detail_index.csv
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\transcript.txt
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\transcript_source.txt
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\selected_source_url.txt
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\_DONE.txt
+            D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05\videos\${{ matrix.slug }}\logs
+          retention-days: 14
+          if-no-files-found: warn
+          compression-level: 6
+
+  finalize:
+    needs: [prepare, process]
+    if: always()
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 30
+    env:
+      LOCAL_ROOT: 'D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05'
+      PROCESS_RESULT: ${{ needs.process.result }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install V5 handoff locally
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:LOCAL_ROOT -Force | Out-Null
+          foreach($name in @('QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CLAUDE_V5_RESEARCH_HANDOFF.md','videos.psv')) {
+            Copy-Item (Join-Path 'research/aetherqor/blockers_v5_architecture' $name) (Join-Path $env:LOCAL_ROOT $name) -Force
+          }
+
+      - name: Verify complete local catalog and write entrypoint
+        shell: pwsh
+        run: |
+          $rows = Get-Content 'research/aetherqor/blockers_v5_architecture/videos.psv' | Where-Object { $_ -and -not $_.StartsWith('#') }
+          $status = New-Object System.Collections.Generic.List[string]
+          $status.Add('# AETHERQOR V5 ARCHITECTURE ULTRA RESEARCH — LOCAL STATUS')
+          $status.Add('')
+          $status.Add("Workflow process result: $env:PROCESS_RESULT")
+          $status.Add("Expected catalog videos: $($rows.Count)")
+          $status.Add('')
+          $status.Add('| slug | done | 1fps JPG | 3x3 sheets | 4fps JPG | transcript | manifest |')
+          $status.Add('|---|---:|---:|---:|---:|---:|---:|')
+          $complete=0; $totalFrames=0; $totalSheets=0; $totalHigh=0
+          foreach($line in $rows) {
+            $slug = ($line -split '\|',4)[0]
+            $root = Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $slug
+            $done = Test-Path (Join-Path $root '_DONE.txt')
+            $frames = @(Get-ChildItem (Join-Path $root 'frames_1fps') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $sheets = @(Get-ChildItem (Join-Path $root 'contact_sheets_3x3') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $high = @(Get-ChildItem (Join-Path $root 'high_detail_4fps') -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $transcript = Test-Path (Join-Path $root 'transcript.txt')
+            $manifest = Test-Path (Join-Path $root 'manifest.json')
+            if($done -and $frames -gt 0 -and $sheets -gt 0 -and $manifest) { $complete++ }
+            $totalFrames += $frames; $totalSheets += $sheets; $totalHigh += $high
+            $status.Add("| $slug | $done | $frames | $sheets | $high | $transcript | $manifest |")
+          }
+          $status.Add('')
+          $status.Add("Complete catalog video sets: $complete / $($rows.Count)")
+          $status.Add("Total raw 1fps JPG: $totalFrames")
+          $status.Add("Total 3x3 sheet JPG: $totalSheets")
+          $status.Add("Total high-detail 4fps JPG: $totalHigh")
+          $status | Set-Content (Join-Path $env:LOCAL_ROOT 'FINAL_STATUS.md') -Encoding UTF8
+
+          $ready = @(
+            '# AETHERQOR V5 ARCHITECTURE ULTRA RESEARCH — LOCAL ENTRYPOINT',
+            '',
+            "Root: $env:LOCAL_ROOT",
+            "Video sets ready: $complete / $($rows.Count)",
+            "Raw 1fps JPG: $totalFrames",
+            "3x3 sheet JPG: $totalSheets",
+            "High-detail 4fps JPG: $totalHigh",
+            '',
+            'CLAUDE: read CLAUDE_V5_RESEARCH_HANDOFF.md first, then QUESTIONS.md, SOURCE_REGISTRY.md, PRELIMINARY_VERDICTS.md and FINAL_STATUS.md.',
+            'Video review order: transcript/index -> 3x3 sheets -> selected 1fps -> selected 4fps.',
+            'Reuse V3/V4 local evidence. Do not redownload old Riot/hair evidence.',
+            'Do not repeat methods explicitly rejected by local measurement.'
+          )
+          $ready | Set-Content (Join-Path $env:LOCAL_ROOT 'LOCAL_READY.md') -Encoding UTF8
+
+          if($complete -lt $rows.Count) { throw "Incomplete V5 local catalog: $complete / $($rows.Count)" }
+          Write-Host 'AETHERQOR_V5_LOCAL_RESEARCH_READY'
+
+      - name: Build lightweight status bundle
+        if: always()
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'aetherqor-v5-status'
+          if(Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+          foreach($name in @('LOCAL_READY.md','FINAL_STATUS.md','QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CLAUDE_V5_RESEARCH_HANDOFF.md','videos.psv')) {
+            $p=Join-Path $env:LOCAL_ROOT $name
+            if(Test-Path $p) { Copy-Item $p $bundle -Force }
+          }
+
+      - name: Upload lightweight final status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V5_ARCHITECTURE_ULTRA_RESEARCH_STATUS
+          path: ${{ runner.temp }}\aetherqor-v5-status
+          retention-days: 30
+          if-no-files-found: warn
+          compression-level: 6
