@@ -1,0 +1,14 @@
+timecode,phase,region,modifier_or_operation,confidence,evidence_note,aetherqor_policy
+00:03:05,P02,torso,Edit-mode boundary shaping,OBSERVED,Explicit topology edits visible on chest boundary,Author feature boundaries before any smoothing or remesh
+00:03:28,P02,helmet,Edit-mode aperture refinement,OBSERVED,Eye and nose opening topology adjusted,Protect face opening as hard requirement
+00:09:29,P04,gauntlet,Repeated element duplication,INFERRED_HIGH,Single fingertip element becomes repeated across digits,Implement deterministic duplicate or instance pattern
+00:10:18,P04,skirt_hip,Separate plate shell duplication or creation,INFERRED_HIGH,Distinct plate appears as modular shell,Use modular plate generator
+00:15:43,P06,waist_ornament,Ring boss extrusion or bevel-like refinement,INFERRED_HIGH,Ring changes from flat to raised finished form,Implement parametric boss independent of exact source operator
+00:16:56,P06,helmet_detail,Ridge strip or curve refinement,OBSERVED,Crown ridge elements selected and refined,Keep as explicit secondary geometry
+00:24:51,P07,ornament,Emboss or relief creation method,UNKNOWN,Relief is visible but creation step is not proven,Use geometry for silhouette-scale relief and bake microdetail
+00:25:54,P08,uv,UV unwrap and pack workflow,OBSERVED,Corresponding UV islands selected after geometry pass,UV only after geometry maturity
+00:28:04,P09,materials,Shader node setup,OBSERVED,Helmet shown with shader nodes active,Translate source material to URP PBR deterministically
+00:45:04,P12,shoulder,Weight paint,OBSERVED,Heat map visible on shoulder and upper arm,Use rigid-zone weighting with pose QA
+00:45:47,P12,chest,Weight paint,OBSERVED,Chest weight regions inspected under armor,Minimize multi-bone influence on rigid plates
+00:49:36,P13,weapon_head,Topology cutout refinement,OBSERVED,Central opening and support topology edited,Build negative space explicitly and keep manifold
+00:50:36,P13,weapon_attachment,Mirror or paired duplication,INFERRED_HIGH,Symmetric side attachments visible,Use deterministic Mirror in replay
