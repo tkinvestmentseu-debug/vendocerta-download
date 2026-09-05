@@ -1,0 +1,145 @@
+name: AETHERQOR V6 Recover From V5 Evidence
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/blockers_v6_urgent/RECOVER_FROM_V5_TRIGGER.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  recover:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 60
+    env:
+      V5_ROOT: 'D:\AetherqorFoundry\research\blockers_v5_architecture\ULTRA_RESEARCH_2026-09-05'
+      V6_ROOT: 'D:\AetherqorFoundry\research\blockers_v6_urgent\ULTRA_RESEARCH_2026-09-05_URGENT'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Recover three blocked P1 datasets from complete V5 evidence
+        shell: pwsh
+        run: |
+          $map = @{
+            'p1_mobile_context' = 'p1_mobile_rig_reduction'
+            'p1_screen_size_lod' = 'p3_topdown_reduction'
+            'p1_quad_character' = 'p1_quad_lod0'
+          }
+          foreach($dstSlug in $map.Keys) {
+            $srcSlug = $map[$dstSlug]
+            $src = Join-Path (Join-Path $env:V5_ROOT 'videos') $srcSlug
+            $dst = Join-Path (Join-Path $env:V6_ROOT 'videos') $dstSlug
+            $srcDone = Test-Path (Join-Path $src '_DONE.txt')
+            $srcFrames = @(Get-ChildItem (Join-Path $src 'frames_1fps') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $srcSheets = @(Get-ChildItem (Join-Path $src 'contact_sheets_3x3') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $srcManifest = Test-Path (Join-Path $src 'manifest.json')
+            if(-not $srcDone -or $srcFrames -le 0 -or $srcSheets -le 0 -or -not $srcManifest) {
+              throw "V5 source set incomplete: $srcSlug done=$srcDone frames=$srcFrames sheets=$srcSheets manifest=$srcManifest"
+            }
+            if(Test-Path $dst) { Remove-Item $dst -Recurse -Force }
+            Copy-Item $src $dst -Recurse -Force
+            @(
+              "v6_slug=$dstSlug",
+              "inherited_from_v5_slug=$srcSlug",
+              "reason=V6 YouTube primary+fallback1+fallback2 all blocked by yt-dlp; V5 already contains complete equivalent technical evidence",
+              "inherited_utc=$([DateTime]::UtcNow.ToString('o'))"
+            ) | Set-Content (Join-Path $dst 'INHERITED_FROM_V5.txt') -Encoding UTF8
+            Add-Content (Join-Path $dst '_DONE.txt') "v6_recovery=inherited_complete_v5_evidence"
+            Write-Host "RECOVERED $dstSlug <- $srcSlug frames=$srcFrames sheets=$srcSheets"
+          }
+
+      - name: Install latest V6 research documents locally
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path $env:V6_ROOT -Force | Out-Null
+          foreach($name in @('QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V6_RESEARCH_HANDOFF.md','videos.psv')) {
+            Copy-Item (Join-Path 'research/aetherqor/blockers_v6_urgent' $name) (Join-Path $env:V6_ROOT $name) -Force
+          }
+
+      - name: Verify full 10 of 10 V6 catalog and write ready entrypoint
+        shell: pwsh
+        run: |
+          $rows = Get-Content 'research/aetherqor/blockers_v6_urgent/videos.psv' | Where-Object { $_ -and -not $_.StartsWith('#') }
+          $status = New-Object System.Collections.Generic.List[string]
+          $status.Add('# AETHERQOR V6 URGENT ULTRA RESEARCH — FINAL LOCAL STATUS')
+          $status.Add('')
+          $status.Add('| slug | done | 1fps JPG | 3x3 sheets | 4fps JPG | transcript | manifest | inherited |')
+          $status.Add('|---|---:|---:|---:|---:|---:|---:|---:|')
+          $complete=0; $totalFrames=0; $totalSheets=0; $totalHigh=0
+          foreach($line in $rows) {
+            $slug = ($line -split '\|',5)[0]
+            $root = Join-Path (Join-Path $env:V6_ROOT 'videos') $slug
+            $done = Test-Path (Join-Path $root '_DONE.txt')
+            $frames = @(Get-ChildItem (Join-Path $root 'frames_1fps') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $sheets = @(Get-ChildItem (Join-Path $root 'contact_sheets_3x3') -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $high = @(Get-ChildItem (Join-Path $root 'high_detail_4fps') -Recurse -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $transcript = Test-Path (Join-Path $root 'transcript.txt')
+            $manifest = Test-Path (Join-Path $root 'manifest.json')
+            $inherited = Test-Path (Join-Path $root 'INHERITED_FROM_V5.txt')
+            if($done -and $frames -gt 0 -and $sheets -gt 0 -and $manifest) { $complete++ }
+            $totalFrames += $frames; $totalSheets += $sheets; $totalHigh += $high
+            $status.Add("| $slug | $done | $frames | $sheets | $high | $transcript | $manifest | $inherited |")
+          }
+          $status.Add('')
+          $status.Add("Complete catalog video sets: $complete / $($rows.Count)")
+          $status.Add("Total raw 1fps JPG: $totalFrames")
+          $status.Add("Total 3x3 sheet JPG: $totalSheets")
+          $status.Add("Total high-detail 4fps JPG: $totalHigh")
+          $status.Add('')
+          $status.Add('Three P1 V6 slugs inherit already-downloaded complete V5 evidence after all three V6 YouTube URLs were blocked. No visual evidence was fabricated or replaced by text-only claims.')
+          $status | Set-Content (Join-Path $env:V6_ROOT 'FINAL_STATUS.md') -Encoding UTF8
+
+          @(
+            '# AETHERQOR V6 URGENT ULTRA RESEARCH — LOCAL ENTRYPOINT',
+            '',
+            "Root: $env:V6_ROOT",
+            "Video sets ready: $complete / $($rows.Count)",
+            "Raw 1fps JPG: $totalFrames",
+            "3x3 sheet JPG: $totalSheets",
+            "High-detail 4fps JPG: $totalHigh",
+            '',
+            'CLAUDE: read CLAUDE_V6_RESEARCH_HANDOFF.md first, then CHATGPT_INDEPENDENT_ANALYSIS.md, QUESTIONS.md, SOURCE_REGISTRY.md, PRELIMINARY_VERDICTS.md and FINAL_STATUS.md.',
+            'Review video evidence in this order: transcript/index -> all 3x3 sheets sequentially -> selected raw 1fps -> selected 4fps.',
+            'For any directory containing INHERITED_FROM_V5.txt, treat the inherited V5 slug as the source identity and cite that slug/timecode/frame in conclusions.',
+            'Do not repeat Alpha Wrap/VDB/ZRemesher/QuadRemesher/Quadriflow/QRemeshify work closed by measurement.'
+          ) | Set-Content (Join-Path $env:V6_ROOT 'LOCAL_READY.md') -Encoding UTF8
+
+          if($complete -ne $rows.Count) { throw "V6 recovery incomplete: $complete / $($rows.Count)" }
+          Write-Host "AETHERQOR_V6_FULL_LOCAL_READY videos=$complete frames=$totalFrames sheets=$totalSheets high=$totalHigh"
+
+      - name: Build complete ChatGPT visual review bundle
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'aetherqor-v6-complete-review'
+          if(Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+          foreach($name in @('LOCAL_READY.md','FINAL_STATUS.md','QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V6_RESEARCH_HANDOFF.md','videos.psv')) {
+            $p=Join-Path $env:V6_ROOT $name
+            if(Test-Path $p) { Copy-Item $p $bundle -Force }
+          }
+          $videosOut = Join-Path $bundle 'videos'
+          New-Item -ItemType Directory -Path $videosOut -Force | Out-Null
+          $rows = Get-Content 'research/aetherqor/blockers_v6_urgent/videos.psv' | Where-Object { $_ -and -not $_.StartsWith('#') }
+          foreach($line in $rows) {
+            $slug=($line -split '\|',5)[0]
+            $src=Join-Path (Join-Path $env:V6_ROOT 'videos') $slug
+            $dst=Join-Path $videosOut $slug
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+            foreach($f in @('manifest.json','transcript.txt','transcript_source.txt','frame_index.csv','sheet_index.csv','high_detail_index.csv','duration_seconds.txt','selected_source_url.txt','_DONE.txt','INHERITED_FROM_V5.txt')) {
+              $p=Join-Path $src $f
+              if(Test-Path $p) { Copy-Item $p $dst -Force }
+            }
+            $s=Join-Path $src 'contact_sheets_3x3'
+            if(Test-Path $s) { Copy-Item $s (Join-Path $dst 'contact_sheets_3x3') -Recurse -Force }
+          }
+
+      - name: Upload complete V6 ChatGPT visual review
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_CHATGPT_VISUAL_REVIEW_COMPLETE
+          path: ${{ runner.temp }}\aetherqor-v6-complete-review
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 6
