@@ -5,7 +5,8 @@ import os
 # 1) salvage waist armor into Belt before it is swallowed by Legs/Chest/bodylike,
 # 2) allow aggressive decimation below 1% for the 3M-triangle donor,
 # 3) cap reused Sword/Shield triangles so the 40k technical gate is meaningful,
-# 4) keep Meshy calls at zero.
+# 4) force deforming gear to be a true child of the armature and verify skin weights,
+# 5) keep Meshy calls at zero.
 
 here = os.path.dirname(os.path.abspath(__file__))
 base = os.path.join(here, 'productionize_v2_donor.py')
@@ -36,12 +37,27 @@ if old not in src:
     raise RuntimeError('PATCH_FAIL_WEAPON_BUDGET')
 src = src.replace(old, new, 1)
 
+# glTF requires the armature to be the actual parent of deforming meshes.
+# Preserve world transform, keep the Armature modifier, and make the relationship explicit.
+old = """    am=o.modifiers.new('AQ_Armature','ARMATURE'); am.object=ar"""
+new = """    am=o.modifiers.new('AQ_Armature','ARMATURE'); am.object=ar\n    mw=o.matrix_world.copy(); o.parent=ar; o.parent_type='OBJECT'; o.matrix_parent_inverse=ar.matrix_world.inverted(); o.matrix_world=mw"""
+if old not in src:
+    raise RuntimeError('PATCH_FAIL_ARMATURE_PARENT')
+src = src.replace(old, new, 1)
+
 # Safety fallback: if the first-pass classifier still yields no Belt, select the
 # best surviving central waist component and move it from Legs/Chest to Belt.
 needle = """required=['Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak']\nmissing=[s for s in required if s not in slotobj]\nif missing: raise RuntimeError('MISSING_SEGMENTED_SLOTS '+','.join(missing))"""
-replacement = """required=['Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak']\nmissing=[s for s in required if s not in slotobj]\nif 'Belt' in missing:\n    # Last-resort production-safe belt shell derived from the lower Chest mesh.\n    # This uses existing donor geometry only and prevents another Meshy call.\n    source = slotobj.get('Chest') or slotobj.get('Legs')\n    if source:\n        belt = source.copy(); belt.data = source.data.copy(); bpy.context.scene.collection.objects.link(belt); belt.name='GEAR_Belt'\n        # Keep only a shallow waist band using a Boolean-like vertex selection in local/world Z.\n        bpy.context.view_layer.objects.active=belt; belt.select_set(True)\n        bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='DESELECT'); bpy.ops.object.mode_set(mode='OBJECT')\n        z0=bmn.z+H*.36; z1=bmn.z+H*.58\n        for v in belt.data.vertices:\n            wz=(belt.matrix_world@v.co).z\n            v.select = (z0 <= wz <= z1)\n        bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_mode(type='VERT'); bpy.ops.mesh.select_all(action='INVERT'); bpy.ops.mesh.delete(type='VERT'); bpy.ops.object.mode_set(mode='OBJECT'); belt.select_set(False)\n        if len(belt.data.vertices)>0 and tri(belt)>0:\n            decimate(belt,1400); slotobj['Belt']=belt; missing=[s for s in required if s not in slotobj]; log('Belt fallback shell created from donor geometry')\n        else:\n            bpy.data.objects.remove(belt,do_unlink=True)\nif missing: raise RuntimeError('MISSING_SEGMENTED_SLOTS '+','.join(missing))"""
+replacement = """required=['Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak']\nmissing=[s for s in required if s not in slotobj]\nif 'Belt' in missing:\n    source = slotobj.get('Chest') or slotobj.get('Legs')\n    if source:\n        belt = source.copy(); belt.data = source.data.copy(); bpy.context.scene.collection.objects.link(belt); belt.name='GEAR_Belt'\n        bpy.context.view_layer.objects.active=belt; belt.select_set(True)\n        bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='DESELECT'); bpy.ops.object.mode_set(mode='OBJECT')\n        z0=bmn.z+H*.36; z1=bmn.z+H*.58\n        for v in belt.data.vertices:\n            wz=(belt.matrix_world@v.co).z\n            v.select = (z0 <= wz <= z1)\n        bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_mode(type='VERT'); bpy.ops.mesh.select_all(action='INVERT'); bpy.ops.mesh.delete(type='VERT'); bpy.ops.object.mode_set(mode='OBJECT'); belt.select_set(False)\n        if len(belt.data.vertices)>0 and tri(belt)>0:\n            decimate(belt,1400); slotobj['Belt']=belt; missing=[s for s in required if s not in slotobj]; log('Belt fallback shell created from donor geometry')\n        else:\n            bpy.data.objects.remove(belt,do_unlink=True)\nif missing: raise RuntimeError('MISSING_SEGMENTED_SLOTS '+','.join(missing))"""
 if needle not in src:
     raise RuntimeError('PATCH_FAIL_BELT_FALLBACK')
 src = src.replace(needle, replacement, 1)
+
+# Extend QA with skin/export facts so a false-positive technical pass is impossible.
+old = "'slots':{s:{'tris':tri(o),'verts':len(o.data.vertices)} for s,o in slotobj.items()}"
+new = "'slots':{s:{'tris':tri(o),'verts':len(o.data.vertices),'vertex_groups':len(o.vertex_groups),'weighted_verts':sum(1 for v in o.data.vertices if any(g.weight>1e-6 for g in v.groups)),'armature_modifiers':sum(1 for m in o.modifiers if m.type=='ARMATURE'),'parent_armature':(o.parent==ar)} for s,o in slotobj.items()}"
+if old not in src:
+    raise RuntimeError('PATCH_FAIL_QA_SKIN')
+src = src.replace(old, new, 1)
 
 exec(compile(src, base + '::fixed', 'exec'), globals(), globals())
