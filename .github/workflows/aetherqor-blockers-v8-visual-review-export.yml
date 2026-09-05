@@ -1,0 +1,74 @@
+name: AETHERQOR V8 Visual Review Export
+
+on:
+  workflow_run:
+    workflows: ["AETHERQOR Blockers V8 Open Problems Ultra Research"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+env:
+  LOCAL_ROOT: 'D:\AetherqorFoundry\research\blockers_v8_open_problems\ULTRA_RESEARCH_2026-09-05_OPEN_PROBLEMS'
+  REVIEW_ROOT: 'D:\AetherqorFoundry\research\blockers_v8_open_problems\CHATGPT_VISUAL_REVIEW_EXPORT'
+
+jobs:
+  export_review:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build V8 visual review export
+        shell: pwsh
+        run: |
+          if(Test-Path $env:REVIEW_ROOT) { Remove-Item $env:REVIEW_ROOT -Recurse -Force }
+          New-Item -ItemType Directory -Path $env:REVIEW_ROOT -Force | Out-Null
+          $videosOut=Join-Path $env:REVIEW_ROOT 'videos'
+          New-Item -ItemType Directory -Path $videosOut -Force | Out-Null
+
+          foreach($name in @('LOCAL_READY.md','FINAL_STATUS.md','QUESTIONS.md','SOURCE_REGISTRY.md','GITHUB_CANDIDATES.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V8_RESEARCH_HANDOFF.md','videos.psv')) {
+            $src=Join-Path $env:LOCAL_ROOT $name
+            if(Test-Path $src) { Copy-Item $src (Join-Path $env:REVIEW_ROOT $name) -Force }
+          }
+
+          $rows=Get-Content (Join-Path $env:LOCAL_ROOT 'videos.psv') | Where-Object { $_ -and -not $_.StartsWith('#') }
+          $status=New-Object System.Collections.Generic.List[string]
+          $status.Add('# AETHERQOR V8 CHATGPT VISUAL REVIEW EXPORT')
+          $status.Add('')
+          $complete=0; $sheetsTotal=0
+          foreach($line in $rows) {
+            $slug=($line -split '\|',5)[0]
+            $srcRoot=Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $slug
+            $dstRoot=Join-Path $videosOut $slug
+            New-Item -ItemType Directory -Path $dstRoot -Force | Out-Null
+            foreach($name in @('manifest.json','transcript.txt','TRANSCRIPT_MISSING.txt','transcript_source.txt','frame_index.csv','sheet_index.csv','high_detail_index.csv','duration_seconds.txt','selected_source_url.txt','selected_source_label.txt','_DONE.txt')) {
+              $src=Join-Path $srcRoot $name
+              if(Test-Path $src) { Copy-Item $src (Join-Path $dstRoot $name) -Force }
+            }
+            $sheetSrc=Join-Path $srcRoot 'contact_sheets_3x3'
+            $sheetDst=Join-Path $dstRoot 'contact_sheets_3x3'
+            if(Test-Path $sheetSrc) {
+              Copy-Item $sheetSrc $sheetDst -Recurse -Force
+            }
+            $sc=@(Get-ChildItem $sheetDst -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+            $hasDone=Test-Path (Join-Path $srcRoot '_DONE.txt')
+            if($hasDone -and $sc -gt 0) { $complete++ }
+            $sheetsTotal += $sc
+            $status.Add("$slug`tcomplete=$hasDone`tsheets=$sc")
+          }
+          $status.Insert(2,"video_sets=$complete/$($rows.Count)")
+          $status.Insert(3,"contact_sheets=$sheetsTotal")
+          $status | Set-Content (Join-Path $env:REVIEW_ROOT 'REVIEW_EXPORT_STATUS.md') -Encoding UTF8
+          if($complete -lt $rows.Count) { throw "Review export incomplete: $complete/$($rows.Count)" }
+          Write-Host "AETHERQOR_V8_CHATGPT_REVIEW_READY videos=$complete sheets=$sheetsTotal"
+
+      - name: Upload V8 ChatGPT visual review
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V8_CHATGPT_VISUAL_REVIEW
+          path: D:\AetherqorFoundry\research\blockers_v8_open_problems\CHATGPT_VISUAL_REVIEW_EXPORT
+          retention-days: 14
+          compression-level: 4
+          if-no-files-found: error
