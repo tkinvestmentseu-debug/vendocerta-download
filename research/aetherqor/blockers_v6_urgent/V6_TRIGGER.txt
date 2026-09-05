@@ -1,0 +1,4 @@
+start=2026-09-05T08:00:00+02:00
+reason=urgent-character-budget-thickness-controlled-reduction-hair-topdown-identity
+mode=direct-to-disk-three-source-fallback-with-visual-review-export
+alpha_wrap=closed-do-not-research
