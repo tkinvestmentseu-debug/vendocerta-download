@@ -1,0 +1,11 @@
+TimestampUtc=2026-09-05T16:10:37.1989020Z
+GitHubRunId=33977012804
+Machine=DESKTOP-MCS2OKE
+RunnerName=AETHERQOR-DESKTOP-MCS2OKE
+BlenderFound=True
+BlenderPath=C:\Program Files\Blender Foundation\Blender 5.2\blender.exe
+BlenderVersion=Blender 5.2.0 LTS
+MeshyApiKeyPresent=True
+UnityProject=D:\Aetherfall - Realms of the Veil
+PipelineRoots=D:\AetherqorPipeline;D:\AetherqorFoundry;D:\Aetherqor_AI_Bridge
+MeshyScriptCount=36
