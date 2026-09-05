@@ -91,7 +91,15 @@ jobs:
           foreach($s in @('Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak')){
             if(-not ($j.slots.PSObject.Properties.Name -contains $s)){ throw "SLOT_FAIL $s" }
           }
-          Write-Host "TECH_GATE_PASS tris=$($j.total_gameplay_tris) bones=$($j.bones) loose=$($j.donor_loose_parts)"
+          foreach($s in @('Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak')){
+            $x=$j.slots.$s
+            if([int]$x.vertex_groups -lt 1){ throw "SKIN_GROUPS_FAIL $s groups=$($x.vertex_groups)" }
+            if([int]$x.armature_modifiers -lt 1){ throw "ARMATURE_MOD_FAIL $s mods=$($x.armature_modifiers)" }
+            if(-not [bool]$x.parent_armature){ throw "ARMATURE_PARENT_FAIL $s" }
+            $min=[math]::Max(1,[math]::Floor([int]$x.verts*0.90))
+            if([int]$x.weighted_verts -lt $min){ throw "WEIGHT_COVERAGE_FAIL $s weighted=$($x.weighted_verts)/$($x.verts) min=$min" }
+          }
+          Write-Host "TECH_GATE_PASS tris=$($j.total_gameplay_tris) bones=$($j.bones) loose=$($j.donor_loose_parts) skin=PASS"
 
       - name: Copy only to quarantine staging
         shell: pwsh
