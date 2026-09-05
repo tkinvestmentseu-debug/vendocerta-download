@@ -1,0 +1,69 @@
+name: AETHERQOR V6 Visual Review Export
+
+on:
+  workflow_run:
+    workflows: ["AETHERQOR Blockers V6 Urgent Ultra Research"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+env:
+  LOCAL_ROOT: 'D:\AetherqorFoundry\research\blockers_v6_urgent\ULTRA_RESEARCH_2026-09-05_URGENT'
+
+jobs:
+  export_review:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build ChatGPT visual review bundle
+        shell: pwsh
+        run: |
+          $bundle=Join-Path $env:RUNNER_TEMP 'aetherqor-v6-chatgpt-review'
+          if(Test-Path $bundle) { Remove-Item $bundle -Recurse -Force }
+          New-Item -ItemType Directory -Path $bundle -Force | Out-Null
+
+          foreach($name in @('LOCAL_READY.md','FINAL_STATUS.md','QUESTIONS.md','SOURCE_REGISTRY.md','PRELIMINARY_VERDICTS.md','CHATGPT_INDEPENDENT_ANALYSIS.md','CLAUDE_V6_RESEARCH_HANDOFF.md','videos.psv')) {
+            $p=Join-Path $env:LOCAL_ROOT $name
+            if(Test-Path $p) { Copy-Item $p $bundle -Force }
+          }
+
+          $videoOut=Join-Path $bundle 'videos'
+          New-Item -ItemType Directory -Path $videoOut -Force | Out-Null
+          $rows=Get-Content 'research/aetherqor/blockers_v6_urgent/videos.psv' | Where-Object { $_ -and -not $_.StartsWith('#') }
+          $reviewStatus=New-Object System.Collections.Generic.List[string]
+          $reviewStatus.Add('# AETHERQOR V6 CHATGPT VISUAL REVIEW EXPORT')
+          $reviewStatus.Add('')
+          $available=0
+          foreach($line in $rows) {
+            $slug=($line -split '\|',5)[0]
+            $src=Join-Path (Join-Path $env:LOCAL_ROOT 'videos') $slug
+            if(-not (Test-Path $src)) { continue }
+            $dst=Join-Path $videoOut $slug
+            New-Item -ItemType Directory -Path $dst -Force | Out-Null
+            foreach($name in @('manifest.json','frame_index.csv','sheet_index.csv','high_detail_index.csv','transcript.txt','transcript_source.txt','selected_source_url.txt','_DONE.txt')) {
+              $p=Join-Path $src $name
+              if(Test-Path $p) { Copy-Item $p $dst -Force }
+            }
+            $sheetSrc=Join-Path $src 'contact_sheets_3x3'
+            if(Test-Path $sheetSrc) {
+              Copy-Item $sheetSrc (Join-Path $dst 'contact_sheets_3x3') -Recurse -Force
+              $count=@(Get-ChildItem $sheetSrc -Filter '*.jpg' -File -ErrorAction SilentlyContinue).Count
+              if($count -gt 0) { $available++ }
+              $reviewStatus.Add("$slug sheets=$count")
+            }
+          }
+          $reviewStatus.Add('')
+          $reviewStatus.Add("video_sets_with_sheets=$available / $($rows.Count)")
+          $reviewStatus | Set-Content (Join-Path $bundle 'REVIEW_EXPORT_STATUS.md') -Encoding UTF8
+
+      - name: Upload ChatGPT visual review bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_V6_CHATGPT_VISUAL_REVIEW
+          path: ${{ runner.temp }}\aetherqor-v6-chatgpt-review
+          retention-days: 14
+          if-no-files-found: error
+          compression-level: 6
