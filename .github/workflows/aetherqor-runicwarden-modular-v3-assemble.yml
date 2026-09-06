@@ -32,7 +32,7 @@ jobs:
             if(-not (Test-Path -LiteralPath $p)){ throw "Missing V3 3D source: $p" }
             if($p -match 'SmokeTest'){ throw "SMOKETEST_REJECTED: $p" }
           }
-          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\modular_v3_assemble_$env:GITHUB_RUN_ID"
+          $root="D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\modular_v3_assemble_fixed_$env:GITHUB_RUN_ID"
           $out=Join-Path $root 'quarantine'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           "AQ_MASTER=$master" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
@@ -49,7 +49,7 @@ jobs:
           $ErrorActionPreference='Stop'
           $blender='C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
           if(-not (Test-Path -LiteralPath $blender)){ throw 'Blender 5.2 missing.' }
-          & $blender --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\assemble_modular_v3.py" -- --master $env:AQ_MASTER --body $env:AQ_BODY --out $env:AQ_OUT
+          & $blender --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\assemble_modular_v3_fixed.py" -- --master $env:AQ_MASTER --body $env:AQ_BODY --out $env:AQ_OUT
           if($LASTEXITCODE -ne 0){ throw "Blender assembly exit=$LASTEXITCODE" }
 
       - name: Hard static assembly gate
@@ -60,6 +60,7 @@ jobs:
           if(-not (Test-Path -LiteralPath $qa)){ throw 'assembly_v3_qa.json missing' }
           $j=Get-Content -LiteralPath $qa -Raw | ConvertFrom-Json
           if([int]$j.bones -lt 15){ throw "RIG_FAIL bones=$($j.bones)" }
+          if(-not $j.underarmor){ throw 'UNDERARMOR_MISSING' }
           $required=@('Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak','Sword','Shield','ClassRelic')
           foreach($s in $required){ if(-not ($j.slots.PSObject.Properties.Name -contains $s)){ throw "SLOT_MISSING $s" } }
           foreach($r in @('front','three_quarter','side','back')){
@@ -70,21 +71,21 @@ jobs:
             $p=Join-Path $env:AQ_OUT "AETHERQOR_RUNIC_WARDEN_FULL_MALE_V3_QUARANTINE.$ext"
             if(-not (Test-Path -LiteralPath $p)){ throw "EXPORT_MISSING $ext" }
           }
-          Write-Host "STATIC_GATE_READY bones=$($j.bones) tris=$($j.total_tris)"
+          Write-Host "STATIC_GATE_READY bones=$($j.bones) tris=$($j.total_tris) underarmor=PASS"
 
-      - name: Copy only to V3 quarantine staging
+      - name: Copy only to V3 fixed quarantine staging
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          $dst='D:\Aetherfall - Realms of the Veil\Assets\Aetherqor\Art\Characters\RunicWarden\ChatGPT_AAA_V3_QUARANTINE'
+          $dst='D:\Aetherfall - Realms of the Veil\Assets\Aetherqor\Art\Characters\RunicWarden\ChatGPT_AAA_V3_FIXED_QUARANTINE'
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
           Get-ChildItem -LiteralPath $env:AQ_OUT -File | Where-Object { $_.Extension -in @('.blend','.fbx','.glb','.json') } | Copy-Item -Destination $dst -Force
           Write-Host "QUARANTINE_STAGING=$dst"
 
-      - name: Upload one-character visual gate
+      - name: Upload one-character fixed visual gate
         uses: actions/upload-artifact@v4
         with:
-          name: AETHERQOR_RUNIC_WARDEN_MODULAR_V3_ASSEMBLY_VISUAL_GATE
+          name: AETHERQOR_RUNIC_WARDEN_MODULAR_V3_FIXED_VISUAL_GATE
           path: |
             ${{ env.AQ_OUT }}\renders\*.png
             ${{ env.AQ_OUT }}\reports\*.json
@@ -92,10 +93,10 @@ jobs:
           retention-days: 7
           compression-level: 0
 
-      - name: Upload V3 quarantine character
+      - name: Upload V3 fixed quarantine character
         uses: actions/upload-artifact@v4
         with:
-          name: AETHERQOR_RUNIC_WARDEN_MODULAR_V3_ASSEMBLY_MODELS
+          name: AETHERQOR_RUNIC_WARDEN_MODULAR_V3_FIXED_MODELS
           path: |
             ${{ env.AQ_OUT }}\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V3_QUARANTINE.blend
             ${{ env.AQ_OUT }}\AETHERQOR_RUNIC_WARDEN_FULL_MALE_V3_QUARANTINE.fbx
