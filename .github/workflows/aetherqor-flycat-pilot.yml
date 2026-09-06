@@ -76,6 +76,10 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
+          $replay="$env:GITHUB_WORKSPACE\tools\blender\flycat_armor_replay\replay.py"
+          $replayText=Get-Content -LiteralPath $replay -Raw
+          $replayText=$replayText.Replace('scene.render.engine = "BLENDER_EEVEE_NEXT"','scene.render.engine = "BLENDER_EEVEE"')
+          Set-Content -LiteralPath $replay -Value $replayText -Encoding utf8
           foreach($name in @('runA','runB')){
             $out=Join-Path $env:FLYCAT_ROOT $name
             New-Item -ItemType Directory -Force -Path $out | Out-Null
