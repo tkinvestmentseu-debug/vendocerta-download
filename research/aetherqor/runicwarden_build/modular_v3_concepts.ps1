@@ -74,11 +74,11 @@ $slotPrompts=[ordered]@{
   ClassRelic='ONLY the removable Runic Warden class relic as a compact armor-mounted ward plate / rune focus, designed to mount at the belt or chest socket. It is NOT jewelry, NOT a necklace, NOT a ring. Palm-sized forged-metal emblem with a strong rune identity and clear mounting back.'
 }
 
-$summary=[ordered]@{status='CONCEPT_GATE_PENDING'; source_v2=$SourceV2Root; balance_start=$balanceStart; generated=@(); reused=@(); failed=@()}
+$summary=[ordered]@{status='CONCEPT_GATE_PENDING'; source_v2=$SourceV2Root; balance_start=$balanceStart; generated=@(); reused=@(); supplemented=@(); failed=@()}
 foreach($slot in $slotPrompts.Keys){
   $dir=Join-Path $conceptRoot $slot; $rep=Join-Path $reportRoot ("{0}_image_task.json" -f $slot)
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
-  $existing=@(Get-ChildItem -LiteralPath $dir -File -Filter 'view_*.png' -ErrorAction SilentlyContinue)
+  $existing=@(Get-ChildItem -LiteralPath $dir -File -Filter 'view_*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
   if((Test-Path -LiteralPath $rep) -and $existing.Count -ge 3){
     Write-Host "REUSE concept $slot ($($existing.Count) views)"
     $summary.reused += $slot
@@ -94,9 +94,27 @@ foreach($slot in $slotPrompts.Keys){
     foreach($u in @($task.image_urls)){
       if($u){ DownloadFile ([string]$u) (Join-Path $dir ("view_{0:D2}.png" -f $i)); $i++ }
     }
-    if($i -lt 3){ throw "Concept $slot returned only $i views" }
+
+    # Meshy sometimes returns only two views for elongated/small props even with generate_multi_view=true.
+    # Do not throw away an otherwise valid completed task. Ask for exactly one supplemental opposite/rear view
+    # using the generated views themselves as references, then continue. This preserves slot identity and avoids
+    # regenerating previously completed slots.
+    if($i -lt 3 -and $i -ge 1){
+      Write-Host "SUPPLEMENT concept $slot current_views=$i"
+      $generatedRefs=@($task.image_urls | Where-Object { $_ })
+      $suppPrompt=$global+"`n`nREQUESTED SLOT:`n"+$slotPrompts[$slot]+"`n`nGenerate ONE additional opposite/rear product view of EXACTLY the same already-generated object. Preserve every design detail, scale, materials and proportions. Do not redesign it and do not add any other object."
+      $sc=Call 'POST' '/openapi/v1/image-to-image' @{ai_model='gpt-image-2';prompt=$suppPrompt;reference_image_urls=$generatedRefs;generate_multi_view=$false;remove_background=$true}
+      $st=WaitTask '/openapi/v1/image-to-image' $sc.result 2400
+      $st|ConvertTo-Json -Depth 16|Set-Content -LiteralPath (Join-Path $reportRoot ("{0}_supplement_task.json" -f $slot)) -Encoding UTF8
+      foreach($u in @($st.image_urls)){
+        if($u -and $i -lt 3){ DownloadFile ([string]$u) (Join-Path $dir ("view_{0:D2}.png" -f $i)); $i++ }
+      }
+      $summary.supplemented += $slot
+    }
+
+    if($i -lt 3){ throw "Concept $slot returned only $i views even after supplement" }
     $summary.generated += $slot
-    Write-Host "CONCEPT_DONE $slot views=$i credits=$($task.consumed_credits)"
+    Write-Host "CONCEPT_DONE $slot views=$i credits_primary=$($task.consumed_credits)"
   }catch{
     $summary.failed += [ordered]@{slot=$slot;error=$_.Exception.Message}
     $summary|ConvertTo-Json -Depth 12|Set-Content -LiteralPath (Join-Path $reportRoot 'CONCEPT_SUMMARY.json') -Encoding UTF8
