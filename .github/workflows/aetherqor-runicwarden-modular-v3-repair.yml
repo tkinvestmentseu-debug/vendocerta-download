@@ -1,0 +1,55 @@
+name: AETHERQOR RunicWarden Modular V3 Repair
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/MODULAR_V3_REPAIR_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-runicwarden-modular-v3-repair
+  cancel-in-progress: true
+
+jobs:
+  repair:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 120
+    env:
+      AQ_FORCE_REGEN_SLOTS: Shoulders,Gloves,Legs,Boots,ClassRelic
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Regenerate only visually failed modular concepts
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\aaa_donor_v2_33985461656'
+          $master='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\modular_v3_master'
+          if(-not (Test-Path -LiteralPath $source)){ throw "V2 source missing: $source" }
+          & "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\modular_v3_concepts.ps1" -SourceV2Root $source -OutputRoot $master
+          if($LASTEXITCODE -ne 0){ throw "Repair script exit=$LASTEXITCODE" }
+          "AQ_V3_MASTER=$master" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Completeness gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $slots=@('Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak','Sword','Shield','ClassRelic')
+          foreach($s in $slots){
+            $d=Join-Path $env:AQ_V3_MASTER ("concepts\$s")
+            $n=@(Get-ChildItem -LiteralPath $d -File -Filter 'view_*.png' -ErrorAction SilentlyContinue).Count
+            if($n -lt 3){ throw "CONCEPT_INCOMPLETE $s views=$n" }
+          }
+          Write-Host 'V3_REPAIR_CONCEPT_GATE_READY'
+
+      - name: Upload repaired visual gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_MODULAR_V3_REPAIRED_CONCEPT_GATE
+          path: |
+            ${{ env.AQ_V3_MASTER }}\concepts\**\*.png
+            ${{ env.AQ_V3_MASTER }}\reports\CONCEPT_SUMMARY.json
+          retention-days: 7
+          compression-level: 0
