@@ -13,7 +13,7 @@ os.makedirs(OUT,exist_ok=True); os.makedirs(os.path.join(OUT,'renders'),exist_ok
 
 SLOTS=['Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak','Sword','Shield','ClassRelic']
 
-def log(x): print('[RW-V3-STATIC-REPAIR]',x,flush=True)
+def log(x): print('[RW-V3-STATIC-REPAIR-V4]',x,flush=True)
 def clear(): bpy.ops.object.select_all(action='SELECT'); bpy.ops.object.delete(use_global=False)
 def import_glb(path):
     before=set(bpy.data.objects); bpy.ops.import_scene.gltf(filepath=path)
@@ -51,6 +51,14 @@ def fit_height(obs,target_center,target_h):
     cur=max(dims(obs).z,1e-6); s=target_h/cur
     if not 0.02<=s<=20: raise RuntimeError(f'unsafe uniform scale {s}')
     apply_uniform(obs,s); move_center(obs,target_center); return s
+def fit_height_min_width(obs,target_center,target_h,min_w):
+    s=fit_height(obs,target_center,target_h)
+    w=max(dims(obs).x,1e-6)
+    if w < min_w:
+        extra=min_w/w
+        if extra>1.45: extra=1.45
+        apply_uniform(obs,extra); move_center(obs,target_center); s*=extra
+    return s
 def rename(obs,slot,side=''):
     i=0
     for o in obs:
@@ -78,23 +86,27 @@ def bone_pos(arm,name):
 def make_underarmor(body,mn,mx,H):
     under=body.copy(); under.data=body.data.copy(); bpy.context.scene.collection.objects.link(under); under.name='BODY_UNDERARMOR_STATIC'
     bm=bmesh.new(); bm.from_mesh(under.data)
-    cx=(mn.x+mx.x)*.5
     kill=[]
     for f in bm.faces:
         wc=[under.matrix_world @ v.co for v in f.verts]
         c=sum(wc,Vector())/max(1,len(wc))
-        zn=(c.z-mn.z)/H; xn=abs(c.x-cx)/H
-        if zn>0.84 or zn<0.16 or (xn>0.30 and 0.42<zn<0.72): kill.append(f)
+        zn=(c.z-mn.z)/H
+        if zn>0.845: kill.append(f)
     if kill: bmesh.ops.delete(bm,geom=kill,context='FACES')
     bm.to_mesh(under.data); bm.free(); under.data.update()
     mat=bpy.data.materials.new('MAT_Underarmor_Dark'); mat.use_nodes=True
     bsdf=mat.node_tree.nodes.get('Principled BSDF')
     if bsdf:
-        bsdf.inputs['Base Color'].default_value=(0.012,0.014,0.016,1)
-        bsdf.inputs['Roughness'].default_value=.78
-        bsdf.inputs['Metallic'].default_value=.02
+        bsdf.inputs['Base Color'].default_value=(0.008,0.010,0.012,1)
+        bsdf.inputs['Roughness'].default_value=.80
+        bsdf.inputs['Metallic'].default_value=.01
     under.data.materials.clear(); under.data.materials.append(mat)
     for p in under.data.polygons: p.material_index=0
+    disp=under.modifiers.new('AQ_UnderarmorOffset','DISPLACE'); disp.strength=.0025; disp.direction='NORMAL'
+    bpy.context.view_layer.objects.active=under; under.select_set(True)
+    try: bpy.ops.object.modifier_apply(modifier=disp.name)
+    except Exception as e: log(f'underarmor offset warning {e}')
+    under.select_set(False)
     return under
 def look_at(o,t): o.rotation_euler=(Vector(t)-o.location).to_track_quat('-Z','Y').to_euler()
 
@@ -116,28 +128,29 @@ if rp is None: rp=Vector((cx+H*.30,cy,mn.z+H*.56))
 if lp is None: lp=Vector((cx-H*.30,cy,mn.z+H*.56))
 underarmor=make_underarmor(body,mn,mx,H)
 
-# Previous rejected pass used torso slice width contaminated by A-pose arms, causing Chest=2.6x and Belt=2.1x.
-# Repair sizes every wearable from its own vertical extent. Uniform scale only preserves each approved source proportion.
+# Existing meshes only. Front is -Y in the QA camera. Push wearable shells slightly toward -Y
+# so they sit outside the body instead of disappearing inside it. Uniform scaling only.
 config={
- 'Helmet':      (Vector((cx,cy,mn.z+H*.915)), H*.175),
- 'Chest':       (Vector((cx,cy,mn.z+H*.685)), H*.335),
- 'Belt':        (Vector((cx,cy,mn.z+H*.500)), H*.285),
- 'Cloak':       (Vector((cx,cy+H*.055,mn.z+H*.515)), H*.590),
- 'Sword':       (Vector((rp.x,rp.y,mn.z+H*.390)), H*.735),
- 'Shield':      (Vector((lp.x,lp.y,mn.z+H*.555)), H*.485),
- 'ClassRelic':  (Vector((cx,cy-H*.115,mn.z+H*.650)), H*.105),
- 'Shoulders_R': (Vector((cx+H*.205,cy,mn.z+H*.755)), H*.145),
- 'Gloves_R':    (Vector((rp.x,rp.y,rp.z-H*.030)), H*.190),
- 'Legs_R':      (Vector((cx+H*.090,cy,mn.z+H*.315)), H*.380),
- 'Boots_R':     (Vector((cx+H*.090,cy-H*.010,mn.z+H*.105)), H*.205),
+ 'Helmet':      (Vector((cx,cy-H*.010,mn.z+H*.915)), H*.175),
+ 'Chest':       (Vector((cx,cy-H*.070,mn.z+H*.690)), H*.370),
+ 'Belt':        (Vector((cx,cy-H*.030,mn.z+H*.500)), H*.300),
+ 'Cloak':       (Vector((cx,cy+H*.060,mn.z+H*.515)), H*.590),
+ 'Sword':       (Vector((rp.x,rp.y-H*.010,mn.z+H*.390)), H*.735),
+ 'Shield':      (Vector((lp.x,lp.y-H*.005,mn.z+H*.555)), H*.440),
+ 'ClassRelic':  (Vector((cx,cy-H*.125,mn.z+H*.670)), H*.105),
+ 'Shoulders_R': (Vector((cx+H*.170,cy-H*.040,mn.z+H*.755)), H*.165),
+ 'Gloves_R':    (Vector((rp.x,cy-H*.035,rp.z-H*.070)), H*.220),
+ 'Legs_R':      (Vector((cx+H*.085,cy-H*.030,mn.z+H*.325)), H*.420),
+ 'Boots_R':     (Vector((cx+H*.085,cy-H*.045,mn.z+H*.115)), H*.240),
 }
 slot_objs={}; scales={}
-for s in ['Helmet','Chest','Belt','Cloak','Sword','Shield','ClassRelic']:
+for s in ['Helmet','Belt','Cloak','Sword','Shield','ClassRelic']:
     obs=meshes(import_glb(slot_path(s))); rename(obs,s); scales[s]=fit_height(obs,*config[s]); slot_objs[s]=obs
+obs=meshes(import_glb(slot_path('Chest'))); rename(obs,'Chest'); scales['Chest']=fit_height_min_width(obs,config['Chest'][0],config['Chest'][1],H*.230); slot_objs['Chest']=obs
 for s,key in [('Shoulders','Shoulders_R'),('Gloves','Gloves_R'),('Legs','Legs_R'),('Boots','Boots_R')]:
     obs=meshes(import_glb(slot_path(s))); rename(obs,s,'_R'); scales[s]=fit_height(obs,*config[key]); left=mirror_group(obs,cx,'_L'); slot_objs[s]=obs+left
 
-qa={'status':'STATIC_VISUAL_GATE_REQUIRED','meshy_calls':0,'body_height':H,'bones':len(arm.data.bones),'method':'existing V3 slot meshes only; own-height uniform fitting; static semantic anchors; exact bilateral mirror; NO Meshy; NO donor slicing; NO SmokeTest; NO weight transfer before visual PASS','scales':scales,'slots':{},'underarmor':{'tris':tri(underarmor),'verts':len(underarmor.data.vertices)}}
+qa={'status':'STATIC_VISUAL_GATE_REQUIRED','meshy_calls':0,'body_height':H,'bones':len(arm.data.bones),'method':'existing V3 meshes only; uniform scaling; outward -Y offsets; fuller underarmor; exact bilateral mirror; NO Meshy; NO donor slicing; NO SmokeTest; NO rigging before visual PASS','scales':scales,'slots':{},'underarmor':{'tris':tri(underarmor),'verts':len(underarmor.data.vertices)}}
 for s,obs in slot_objs.items():
     a,b=bbox(obs); d=b-a
     qa['slots'][s]={'objects':len(obs),'tris':sum(tri(o) for o in obs),'verts':sum(len(o.data.vertices) for o in obs),'bbox_dims':[d.x,d.y,d.z],'center':list(center(obs))}
@@ -169,6 +182,6 @@ for o in exportables:o.select_set(True)
 bpy.context.view_layer.objects.active=arm
 fbx=os.path.join(OUT,'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V3_QUARANTINE.fbx'); bpy.ops.export_scene.fbx(filepath=fbx,use_selection=True,add_leaf_bones=False,bake_anim=False,apply_unit_scale=True)
 glb=os.path.join(OUT,'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V3_QUARANTINE.glb'); bpy.ops.export_scene.gltf(filepath=glb,export_format='GLB',use_selection=True,export_cameras=False,export_lights=False)
-manifest={'character':'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V3','status':'STATIC_FIT_QUARANTINE_VISUAL_GATE','meshy_calls':0,'body':BODY_PATH,'master':MASTER,'slots':SLOTS,'files':[os.path.basename(blend),os.path.basename(fbx),os.path.basename(glb)],'note':'Do not promote. Static fit only. Rig/weight transfer begins only after visual PASS_STRONG.'}
+manifest={'character':'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V3','status':'STATIC_FIT_QUARANTINE_VISUAL_GATE','meshy_calls':0,'body':BODY_PATH,'master':MASTER,'slots':SLOTS,'files':[os.path.basename(blend),os.path.basename(fbx),os.path.basename(glb)],'note':'Do not promote. Existing-mesh static fit only. Rig/weight transfer begins only after visual PASS_STRONG.'}
 with open(os.path.join(OUT,'AETHERQOR_RUNIC_WARDEN_FULL_MALE_V3_MANIFEST.json'),'w',encoding='utf8') as f: json.dump(manifest,f,indent=2)
-log(f'DONE static repair H={H:.4f} tris={qa["total_tris"]} Meshy=0')
+log(f'DONE static repair V4 H={H:.4f} tris={qa["total_tris"]} Meshy=0')
