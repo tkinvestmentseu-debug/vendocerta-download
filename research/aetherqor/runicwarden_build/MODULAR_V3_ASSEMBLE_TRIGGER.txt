@@ -1,1 +1,1 @@
-Trigger Runic Warden V3 static-fit repair V4, Meshy forbidden, existing assets only. 2026-09-06T18:34+02:00
+Trigger Runic Warden V5 existing-mesh visual-only repair, Meshy forbidden. 2026-09-06T19:52+02:00
