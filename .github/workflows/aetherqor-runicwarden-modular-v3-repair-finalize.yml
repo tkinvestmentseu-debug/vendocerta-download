@@ -1,0 +1,49 @@
+name: AETHERQOR RunicWarden Modular V3 Repair Finalize
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/MODULAR_V3_REPAIR_FINALIZE_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-runicwarden-modular-v3-repair-finalize
+  cancel-in-progress: true
+
+jobs:
+  finalize:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify repaired 11-slot concept set without Meshy calls
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $master='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\modular_v3_master'
+          if(-not (Test-Path -LiteralPath $master)){ throw "Master missing: $master" }
+          $slots=@('Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak','Sword','Shield','ClassRelic')
+          foreach($s in $slots){
+            $d=Join-Path $master ("concepts\$s")
+            $n=@(Get-ChildItem -LiteralPath $d -File -Filter 'view_*.png' -ErrorAction SilentlyContinue).Count
+            if($n -lt 3){ throw "CONCEPT_INCOMPLETE $s views=$n" }
+            Write-Host "CONCEPT_READY $s views=$n"
+          }
+          $sum=Join-Path $master 'reports\CONCEPT_SUMMARY.json'
+          if(-not (Test-Path -LiteralPath $sum)){ throw 'CONCEPT_SUMMARY missing' }
+          "AQ_V3_MASTER=$master" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host 'MESHY_CALLS=0'
+          Write-Host 'REPAIR_COMPLETENESS_PASS 11/11'
+
+      - name: Upload repaired 11-slot visual gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_MODULAR_V3_REPAIRED_CONCEPT_GATE
+          path: |
+            ${{ env.AQ_V3_MASTER }}\concepts\**\*.png
+            ${{ env.AQ_V3_MASTER }}\reports\CONCEPT_SUMMARY.json
+          retention-days: 7
+          compression-level: 0
