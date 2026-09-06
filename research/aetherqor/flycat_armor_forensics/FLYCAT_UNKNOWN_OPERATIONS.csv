@@ -1,0 +1,8 @@
+timecode,phase,region,question,current_confidence,material_to_recipe,resolution_policy
+00:09:29,P04,gauntlet_fingers,Exact duplication command used for repeated fingertip plates,INFERRED_HIGH,NO,Use deterministic duplicate or instance pattern in replay
+00:10:18,P04,skirt_hip,Whether repeated skirt plate was duplicated extruded or separated from another shell,INFERRED_HIGH,NO,Use modular plate generator with explicit transforms
+00:15:43,P06,circular_ornament,Exact operator sequence used to produce raised ring or boss,INFERRED_HIGH,NO,Use parametric ring or boss generator
+00:16:56,P06,helmet_detail,Whether crown ridges are curves mesh strips or extruded edges,INFERRED_MEDIUM,NO,Represent ridges as explicit secondary geometry chosen by part recipe
+00:24:51,P07,engraved_ornament,Exact source creation method for raised or engraved swirl relief,UNKNOWN,NO,Apply AETHERQOR screen-space rule geometry for silhouette-scale relief and bake subpixel detail
+00:27:53,P09,asset_handoff,Exact external source or application used during texture handoff,UNKNOWN,NO,Record AETHERQOR texture provenance and deterministic import settings instead
+00:28:34,P09,materials,Exact source shader channel semantics and values,INFERRED_MEDIUM,NO,Map verified texture channels to URP PBR only after inspecting actual source maps
