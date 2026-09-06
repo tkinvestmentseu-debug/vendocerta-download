@@ -1,0 +1,56 @@
+name: AETHERQOR RunicWarden Modular V3 Models
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/MODULAR_V3_MODELS_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-runicwarden-modular-v3-models
+  cancel-in-progress: true
+
+jobs:
+  models:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate or resume 11 isolated Meshy Ultra 3D slot assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $master='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\modular_v3_master'
+          if(-not (Test-Path -LiteralPath (Join-Path $master 'reports\CONCEPT_SUMMARY.json'))){ throw 'Concept gate has not completed.' }
+          & "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\modular_v3_models.ps1" -MasterRoot $master
+          if(-not $?){ throw 'V3 per-slot model generation failed.' }
+          "AQ_V3_MASTER=$master" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Hard per-slot model completeness gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $slots=@('Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak','Sword','Shield','ClassRelic')
+          foreach($s in $slots){
+            foreach($ext in @('glb','fbx')){
+              $p=Join-Path $env:AQ_V3_MASTER ("models\$s\${s}_source.$ext")
+              if(-not (Test-Path -LiteralPath $p)){ throw "MODEL_MISSING $s $ext" }
+              if((Get-Item -LiteralPath $p).Length -lt 10000){ throw "MODEL_TOO_SMALL $s $ext" }
+            }
+          }
+          $j=Get-Content -LiteralPath (Join-Path $env:AQ_V3_MASTER 'reports\MODEL_SUMMARY.json') -Raw | ConvertFrom-Json
+          if($j.failed.Count -gt 0){ throw "MODEL_FAILURES=$($j.failed.Count)" }
+          Write-Host "MODEL_GATE_READY credits_used=$($j.credits_used) balance_end=$($j.balance_end)"
+
+      - name: Upload lightweight per-slot 3D visual gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_MODULAR_V3_MODEL_GATE
+          path: |
+            ${{ env.AQ_V3_MASTER }}\model_thumbs\**\*.png
+            ${{ env.AQ_V3_MASTER }}\reports\MODEL_SUMMARY.json
+          retention-days: 7
+          compression-level: 0
