@@ -1,0 +1,212 @@
+name: AETHERQOR FlyCat Final Pilot
+
+on:
+  push:
+    paths:
+      - '.github/workflows/aetherqor-flycat-pilot-final.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: aetherqor-flycat-final-pilot
+  cancel-in-progress: true
+
+jobs:
+  pilot:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve local sources and tools
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $blender='C:\Program Files\Blender Foundation\Blender 5.2\blender.exe'
+          $unity='C:\Program Files\Unity\Hub\Editor\6000.4.8f1\Editor\Unity.exe'
+          if(-not (Test-Path -LiteralPath $blender)){ throw 'Blender 5.2 missing.' }
+          if(-not (Test-Path -LiteralPath $unity)){
+            $unity=Get-ChildItem 'C:\Program Files\Unity\Hub\Editor' -Recurse -File -Filter Unity.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\Editor\\Unity\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if(-not $unity -or -not (Test-Path -LiteralPath $unity)){ throw 'Unity editor not found.' }
+          $donor='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\aaa_donor_v2_33985461656\model\RunicWarden_AAA_Donor_V2.glb'
+          $body='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265\generated\models\Body_Rigged.glb'
+          $sword='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265\generated\models\Sword.glb'
+          $shield='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265\generated\models\Shield.glb'
+          foreach($p in @($donor,$body,$sword,$shield)){ if(-not (Test-Path -LiteralPath $p)){ throw "Required local source missing: $p" } }
+          $root="D:\AetherqorPipeline\FlyCat_Final_$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          "FLYCAT_BLENDER=$blender" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "FLYCAT_UNITY=$unity" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "FLYCAT_DONOR=$donor" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "FLYCAT_BODY=$body" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "FLYCAT_SWORD=$sword" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "FLYCAT_SHIELD=$shield" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "FLYCAT_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "ROOT=$root"
+          Write-Host 'EXTERNAL_GENERATION_CALLS=0'
+
+      - name: Build isolated fitted base
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $base=Join-Path $env:FLYCAT_ROOT 'base'
+          New-Item -ItemType Directory -Force -Path $base | Out-Null
+          & $env:FLYCAT_BLENDER --background --python "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\productionize_v2_donor_fixed.py" -- --donor $env:FLYCAT_DONOR --body $env:FLYCAT_BODY --sword $env:FLYCAT_SWORD --shield $env:FLYCAT_SHIELD --out $base
+          if($LASTEXITCODE -ne 0){ throw "Base build failed exit=$LASTEXITCODE" }
+          $blend=Join-Path $base 'AETHERQOR_RUNIC_WARDEN_AAA_V2_PRODUCTION.blend'
+          if(-not (Test-Path -LiteralPath $blend)){ throw 'Base production blend missing.' }
+          "FLYCAT_BASE_BLEND=$blend" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Replay twice and verify determinism
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $replay="$env:GITHUB_WORKSPACE\tools\blender\flycat_armor_replay\replay.py"
+          $txt=Get-Content -LiteralPath $replay -Raw
+          $txt=$txt.Replace('scene.render.engine = "BLENDER_EEVEE_NEXT"','scene.render.engine = "BLENDER_EEVEE"')
+          Set-Content -LiteralPath $replay -Value $txt -Encoding utf8
+          foreach($name in @('runA','runB')){
+            $out=Join-Path $env:FLYCAT_ROOT $name
+            New-Item -ItemType Directory -Force -Path $out | Out-Null
+            & $env:FLYCAT_BLENDER --background --python $replay -- --input-blend $env:FLYCAT_BASE_BLEND --slot GEAR_Chest --budget 5200 --out $out
+            if($LASTEXITCODE -ne 0){ throw "Replay $name failed exit=$LASTEXITCODE" }
+          }
+          $a=Get-Content (Join-Path $env:FLYCAT_ROOT 'runA\blender_metrics.json') -Raw | ConvertFrom-Json
+          $b=Get-Content (Join-Path $env:FLYCAT_ROOT 'runB\blender_metrics.json') -Raw | ConvertFrom-Json
+          if($a.mesh_signature -ne $b.mesh_signature){ throw "DETERMINISM_FAIL A=$($a.mesh_signature) B=$($b.mesh_signature)" }
+          "FLYCAT_SIGNATURE=$($a.mesh_signature)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "DETERMINISM_PASS signature=$($a.mesh_signature) tris=$($a.triangles_replay)"
+
+      - name: Create isolated Unity smoke project reliably
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $smoke=Join-Path $env:FLYCAT_ROOT 'UnitySmoke'
+          $createLog=Join-Path $env:FLYCAT_ROOT 'unity_create.log'
+          if(Test-Path -LiteralPath $smoke){ Remove-Item -LiteralPath $smoke -Recurse -Force }
+          $args=@('-batchmode','-quit','-createProject',$smoke,'-logFile',$createLog)
+          $p=Start-Process -FilePath $env:FLYCAT_UNITY -ArgumentList $args -Wait -PassThru -NoNewWindow
+          if($p.ExitCode -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $smoke 'Assets'))){
+            Get-Content -LiteralPath $createLog -Tail 200 -ErrorAction SilentlyContinue
+            throw "Unity smoke project create failed exit=$($p.ExitCode)"
+          }
+          New-Item -ItemType Directory -Force -Path (Join-Path $smoke 'Assets\Editor'),(Join-Path $smoke 'Assets\FlyCatPilot') | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\tools\unity\FlyCatPilotQA.cs" (Join-Path $smoke 'Assets\Editor\FlyCatPilotQA.cs') -Force
+          Copy-Item (Join-Path $env:FLYCAT_ROOT 'runA\FlyCat_Chest_Pilot.fbx') (Join-Path $smoke 'Assets\FlyCatPilot\FlyCat_Chest_Pilot.fbx') -Force
+          "FLYCAT_UNITY_SMOKE=$smoke" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Unity import gear toggle and deformation QA
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $report=Join-Path $env:FLYCAT_ROOT 'unity_qa.json'
+          $log=Join-Path $env:FLYCAT_ROOT 'unity_qa.log'
+          $args=@('-batchmode','-quit','-projectPath',$env:FLYCAT_UNITY_SMOKE,'-executeMethod','FlyCatPilotQA.Run','-flycatModel','Assets/FlyCatPilot/FlyCat_Chest_Pilot.fbx','-flycatReport',$report,'-logFile',$log)
+          $p=Start-Process -FilePath $env:FLYCAT_UNITY -ArgumentList $args -Wait -PassThru -NoNewWindow
+          if(-not (Test-Path -LiteralPath $report)){
+            Get-Content -LiteralPath $log -Tail 220 -ErrorAction SilentlyContinue
+            throw "Unity QA report missing exit=$($p.ExitCode)"
+          }
+          $j=Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          Write-Host "UNITY_QA=$($j.status) exit=$($p.ExitCode) renderers=$($j.rendererCount) skinned=$($j.skinnedRendererCount) gearOnOff=$($j.gearOnOffIndependent) pose=$($j.proceduralPoseBakeFinite)"
+          if($j.status -eq 'FAIL'){ throw "Unity QA reported FAIL exit=$($p.ExitCode)" }
+
+      - name: Build final measured results and verdict
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $blender=Get-Content (Join-Path $env:FLYCAT_ROOT 'runA\blender_metrics.json') -Raw | ConvertFrom-Json
+          $unity=Get-Content (Join-Path $env:FLYCAT_ROOT 'unity_qa.json') -Raw | ConvertFrom-Json
+          $deterministic=($blender.mesh_signature -eq $env:FLYCAT_SIGNATURE)
+          $triPass=([int]$blender.triangles_replay -le [math]::Ceiling([int]$blender.triangle_budget * 1.15))
+          $rigPass=([double]$blender.rig.weighted_fraction -ge 0.90 -and [int]$blender.rig.armature_modifiers -ge 1 -and [bool]$blender.rig.parent_is_armature)
+          $iou=[double]$blender.screen_space.projected_silhouette_iou_300px
+          $silhouettePass=($iou -ge 0.97)
+          $screenPass=$true
+          foreach($k in @('90','150','220','300')){ if(-not [bool]$blender.screen_space.targets.$k.macro_edge_survival_proxy){ $screenPass=$false } }
+          $bindInside=[double]$blender.bind_pose_penetration.inside_fraction
+          $poseInside=[double]$blender.stress_pose_penetration.inside_fraction
+          $penetrationPass=($bindInside -le 0.03 -and $poseInside -le 0.05)
+          $unityPass=($unity.status -eq 'PASS' -and [bool]$unity.gearOnOffIndependent -and [bool]$unity.proceduralPoseBakeFinite -and [bool]$unity.allMaterialsNonNull -and [bool]$unity.allShadersNonNull)
+          $overall=($deterministic -and $triPass -and $rigPass -and $silhouettePass -and $screenPass -and $penetrationPass -and $unityPass)
+          $status=if($overall){'PASS_STRONG'}else{'PILOT_FAIL_NO_PROMOTION'}
+          $result=[ordered]@{
+            schema=1; status=$status; completed_utc=(Get-Date).ToUniversalTime().ToString('o'); source='existing Runic Warden V2 donor; zero external generation calls'; pilot_slot='Chest'; replay_version=$blender.replay_version; mesh_signature=$blender.mesh_signature; deterministic_replay=$deterministic;
+            triangles=[ordered]@{source=[int]$blender.triangles_source; replay=[int]$blender.triangles_replay; budget=[int]$blender.triangle_budget; pass=$triPass};
+            donor_fidelity=[ordered]@{projected_silhouette_iou_300px=$iou; pass=$silhouettePass}; screen_space=$blender.screen_space.targets; screen_space_pass=$screenPass; rig=$blender.rig; rig_pass=$rigPass;
+            penetration=[ordered]@{bind=$blender.bind_pose_penetration; stress_pose=$blender.stress_pose_penetration; pass=$penetrationPass}; unity=$unity; unity_pass=$unityPass; methodology=$blender.methodology;
+            gates=[ordered]@{deterministic=$deterministic; triangle_budget=$triPass; rig=$rigPass; silhouette=$silhouettePass; screen_space=$screenPass; penetration=$penetrationPass; unity=$unityPass}
+          }
+          $dest=Join-Path $env:GITHUB_WORKSPACE 'research\aetherqor\flycat_armor_forensics\FLYCAT_PILOT_RESULTS.json'
+          $result | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $dest -Encoding utf8
+          $decision=if($overall){'PASS_STRONG. The FlyCat-derived deterministic method is technically viable for AETHERQOR modular armor. Promote the method while retaining the same boundary-first, overlap-first and screen-space QA gates.'}else{'NO PROMOTION YET. The deterministic method is implemented and measured, but this pilot missed one or more hard gates. Fix only the failed gates recorded in FLYCAT_PILOT_RESULTS.json; do not restart the research.'}
+          $verdict=@"
+# FLYCAT FINAL VERDICT
+
+**Pilot status: $status**
+
+## Evidence conclusion
+The public FlyCat workflow supports a clear production conclusion: armor quality comes primarily from explicit early plate boundaries, authored macro topology, modular overlaps and repeated full-character fit/silhouette checks. The evidence does not support a magic remesh or modifier stack as the source of quality. Exact hidden hotkeys or unpublished parameters were not invented.
+
+## Measured AETHERQOR chest pilot
+- Existing local donor only; external generation calls: 0
+- Replay version: $($blender.replay_version)
+- Deterministic second-run match: $deterministic
+- Mesh signature: $($blender.mesh_signature)
+- Triangles: $($blender.triangles_source) -> $($blender.triangles_replay), budget $($blender.triangle_budget), gate=$triPass
+- Projected donor silhouette IoU at 300 px: $([math]::Round($iou,6)), gate=$silhouettePass
+- Screen-space 90/150/220/300 px gate: $screenPass
+- Weighted coverage: $([math]::Round([double]$blender.rig.weighted_fraction*100,3))%, rig gate=$rigPass
+- Bind-pose inside fraction: $([math]::Round($bindInside*100,3))%
+- Stress-pose inside fraction: $([math]::Round($poseInside*100,3))%, penetration gate=$penetrationPass
+- Unity $($unity.unityVersion): status=$($unity.status), gear on/off=$($unity.gearOnOffIndependent), deformation=$($unity.proceduralPoseBakeFinite), materials=$($unity.allMaterialsNonNull), shaders=$($unity.allShadersNonNull), unity gate=$unityPass
+
+## Decision
+**$decision**
+
+This verdict reproduces observable geometric intent and production ordering, not private keystrokes. Full measured gates are in `FLYCAT_PILOT_RESULTS.json`.
+"@
+          $verdictPath=Join-Path $env:GITHUB_WORKSPACE 'research\aetherqor\flycat_armor_forensics\FLYCAT_FINAL_VERDICT.md'
+          $verdict | Set-Content -LiteralPath $verdictPath -Encoding utf8
+          Write-Host "FINAL=$status"
+
+      - name: Commit durable final result
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          git config user.name 'aetherqor-flycat-bot'
+          git config user.email 'aetherqor-flycat-bot@users.noreply.github.com'
+          git add -- 'research/aetherqor/flycat_armor_forensics/FLYCAT_PILOT_RESULTS.json' 'research/aetherqor/flycat_armor_forensics/FLYCAT_FINAL_VERDICT.md'
+          if(-not (git diff --cached --quiet)){
+            git commit -m 'Complete FlyCat armor pilot and final verdict'
+            for($i=0;$i -lt 5;$i++){
+              git pull --rebase origin main
+              git push origin HEAD:main
+              if($LASTEXITCODE -eq 0){ break }
+              if($i -eq 4){ throw 'Could not push FlyCat final result.' }
+              Start-Sleep -Seconds 4
+            }
+          }
+
+      - name: Upload final evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_FLYCAT_FINAL_EVIDENCE
+          path: |
+            ${{ env.FLYCAT_ROOT }}\runA\renders\*.png
+            ${{ env.FLYCAT_ROOT }}\runA\blender_metrics.json
+            ${{ env.FLYCAT_ROOT }}\runA\FlyCat_Chest_Pilot.fbx
+            ${{ env.FLYCAT_ROOT }}\unity_qa.json
+            ${{ env.FLYCAT_ROOT }}\unity_qa.log
+            ${{ env.FLYCAT_ROOT }}\unity_create.log
+          retention-days: 7
+          compression-level: 0
