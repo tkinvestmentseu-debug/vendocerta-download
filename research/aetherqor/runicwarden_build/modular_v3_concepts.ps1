@@ -40,9 +40,15 @@ New-Item -ItemType Directory -Force -Path $OutputRoot | Out-Null
 $conceptRoot=Join-Path $OutputRoot 'concepts'; $reportRoot=Join-Path $OutputRoot 'reports'
 New-Item -ItemType Directory -Force -Path $conceptRoot,$reportRoot | Out-Null
 
+$forceSlots=@()
+if(-not [string]::IsNullOrWhiteSpace($env:AQ_FORCE_REGEN_SLOTS)){
+  $forceSlots=@($env:AQ_FORCE_REGEN_SLOTS.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+  Write-Host "FORCE_REGEN_SLOTS=$($forceSlots -join ',')"
+}
+
 $balanceStart=[int](Call 'GET' '/openapi/v1/balance').balance
 Write-Host "MESHY_BALANCE_START=$balanceStart"
-if($balanceStart -lt 300){ throw "Refusing V3 concept generation: balance too low ($balanceStart)." }
+if($balanceStart -lt 120){ throw "Refusing V3 concept generation: balance too low ($balanceStart)." }
 
 $global=@'
 Use the supplied Runic Warden V2 turnaround only as the exact ART-DIRECTION and design-language reference. We are rebuilding this hero as a genuinely modular AAA game character. Generate ONLY the requested removable equipment item, isolated as a clean production asset turnaround.
@@ -52,10 +58,10 @@ ABSOLUTE RULES:
 - blackened forged iron / gunmetal steel, restrained aged brass / old gold rune channels, subtle warm amber-white rune glow only
 - ZERO blue, ZERO cyan, no bright fantasy neon
 - realistic premium PBR-ready surfaces, believable thickness, engineered seams, edge wear, leather only where mechanically required
-- no body, no mannequin, no skin, no hands, no feet, no head, no unrelated armor pieces, no pedestal, no floor, no extra props
+- no body, no mannequin, no skin, no unrelated armor pieces, no pedestal, no floor, no extra props
 - no melted forms, no floating fragments, no asymmetrical corruption
 - neutral studio lighting, transparent/clean background, full object visible with generous margins
-- same object in every generated view, consistent proportions and construction
+- same object or same matched pair in every generated view, consistent proportions and construction
 - intended for high-end mobile dark-fantasy RPG comparable in finish/readability to Black Desert Mobile hero gear
 - clean modular boundaries so the piece can be equipped/unequipped independently
 '@
@@ -63,21 +69,30 @@ ABSOLUTE RULES:
 $slotPrompts=[ordered]@{
   Helmet='ONLY the signature Runic Warden helmet. Compact close-fitting knight/warden helm, strong vertical rune crest, articulated cheek/visor construction, complete back of helmet, neck clearance, no horns, no giant crown, no hair, no head. Premium readable silhouette.'
   Chest='ONLY the torso armor shell. Fitted forged cuirass covering upper torso and abdomen, segmented articulated abdomen, protected collar line, deliberate old-gold rune channels, clean arm/neck/waist openings, no pauldrons, no arms, no belt, no cape. It must read as one wearable chest slot.'
-  Shoulders='ONLY a matched LEFT+RIGHT pair of restrained anatomical pauldrons as one asset set. Slightly beyond shoulder width only, layered practical plates, clear underside/attachment geometry, no wings, no giant spikes, no chest armor, no arms.'
-  Gloves='ONLY a matched LEFT+RIGHT pair of armored gauntlets as one asset set. Full wrist-to-fingertip engineered gauntlets, articulated finger plates, practical cuff, no human hands/skin, no forearms beyond the glove cuff.'
+  Shoulders='ONLY a MATCHED LEFT+RIGHT PAIR of restrained anatomical pauldrons. BOTH pieces MUST be visible together in EVERY view, separated by a clear gap, mirrored counterparts with consistent construction. Never show a single pauldron. Slightly beyond shoulder width only, layered practical plates, clear underside/attachment geometry, no wings, no giant spikes, no chest armor, no arms.'
+  Gloves='ONLY a MATCHED LEFT+RIGHT PAIR of armored gauntlets. BOTH gauntlets MUST be visible together in EVERY view, separated by a clear gap. Never show one glove only. Full wrist-to-fingertip engineered gauntlets, articulated finger plates, practical cuffs, no human hands/skin, no forearms beyond the glove cuffs.'
   Belt='ONLY the removable belt + faulds/tassets slot. Structured armored waist belt with central Runic Warden clasp/relic mount and controlled front/side tassets. No torso, no legs, no underwear, no giant skirt, no cape. Must leave hip articulation readable.'
-  Legs='ONLY a matched LEFT+RIGHT leg armor set from upper thigh to lower shin, including cuisses/poleyn/knee articulation but EXCLUDING boots. No pelvis/body, no feet. Practical mobile-combat proportions, clean top and ankle openings.'
-  Boots='ONLY a matched LEFT+RIGHT pair of armored boots/sabatons as one asset set. Complete foot/ankle construction with practical sole and ankle articulation, no bare feet/skin, no greaves extending to knee.'
+  Legs='ONLY a MATCHED LEFT+RIGHT PAIR of leg armor. BOTH left and right assemblies MUST be visible together in EVERY view, separated by a clear gap. Never show one leg only. Upper thigh to lower shin, cuisses/poleyn/knee articulation, EXCLUDING boots. No pelvis/body, no feet. Practical mobile-combat proportions, clean top and ankle openings.'
+  Boots='ONLY a MATCHED LEFT+RIGHT PAIR of armored boots/sabatons. BOTH boots MUST be visible together in EVERY view, separated by a clear gap. Never show one boot only. Complete foot/ankle construction with practical sole and ankle articulation, no bare feet/skin, no greaves extending to knee.'
   Cloak='ONLY the short controlled Runic Warden back mantle/cape. Shoulder attachment edge plus cloth falling to around knee/calf, narrow enough to preserve leg readability, dark charcoal cloth with restrained reinforced trim, no body, no armor, no gigantic skirt, no floor.'
   Sword='ONLY the Runic Warden Oathblade longsword. Straight readable blade, premium practical guard, wrapped grip, pommel, subtle engraved old-gold rune channel, combat-realistic proportions, no hand, no scabbard, no shield.'
   Shield='ONLY the Runic Warden Aegis shield. Medium-sized sturdy geometric shield, practical thickness, rear grip/strap construction included, engraved central runic ward emblem, blackened steel with restrained old-gold accents, no organic swirl, no arm/hand.'
-  ClassRelic='ONLY the removable Runic Warden class relic as a compact armor-mounted ward plate / rune focus, designed to mount at the belt or chest socket. It is NOT jewelry, NOT a necklace, NOT a ring. Palm-sized forged-metal emblem with a strong rune identity and clear mounting back.'
+  ClassRelic='ONLY a COMPACT PALM-SIZED Runic Warden class relic, approximately 8-12 cm tall, a narrow armor-mounted ward plate / rune focus for a belt or chest socket. It must NOT resemble a shield. NOT jewelry, NOT necklace, NOT ring. Thin forged-metal rune emblem with a small mounting back, no straps sized for an arm, no shield silhouette, no weapon proportions.'
 }
 
-$summary=[ordered]@{status='CONCEPT_GATE_PENDING'; source_v2=$SourceV2Root; balance_start=$balanceStart; generated=@(); reused=@(); supplemented=@(); failed=@()}
+$summary=[ordered]@{status='CONCEPT_GATE_PENDING'; source_v2=$SourceV2Root; balance_start=$balanceStart; generated=@(); reused=@(); supplemented=@(); forced=@(); failed=@()}
 foreach($slot in $slotPrompts.Keys){
   $dir=Join-Path $conceptRoot $slot; $rep=Join-Path $reportRoot ("{0}_image_task.json" -f $slot)
   New-Item -ItemType Directory -Force -Path $dir | Out-Null
+
+  if($forceSlots -contains $slot){
+    Write-Host "FORCE REGENERATE concept $slot"
+    Get-ChildItem -LiteralPath $dir -File -Filter 'view_*.png' -ErrorAction SilentlyContinue | Remove-Item -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $rep -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath (Join-Path $reportRoot ("{0}_supplement_task.json" -f $slot)) -Force -ErrorAction SilentlyContinue
+    $summary.forced += $slot
+  }
+
   $existing=@(Get-ChildItem -LiteralPath $dir -File -Filter 'view_*.png' -ErrorAction SilentlyContinue | Sort-Object Name)
   if((Test-Path -LiteralPath $rep) -and $existing.Count -ge 3){
     Write-Host "REUSE concept $slot ($($existing.Count) views)"
@@ -94,15 +109,10 @@ foreach($slot in $slotPrompts.Keys){
     foreach($u in @($task.image_urls)){
       if($u){ DownloadFile ([string]$u) (Join-Path $dir ("view_{0:D2}.png" -f $i)); $i++ }
     }
-
-    # Meshy sometimes returns only two views for elongated/small props even with generate_multi_view=true.
-    # Do not throw away an otherwise valid completed task. Ask for exactly one supplemental opposite/rear view
-    # using the generated views themselves as references, then continue. This preserves slot identity and avoids
-    # regenerating previously completed slots.
     if($i -lt 3 -and $i -ge 1){
       Write-Host "SUPPLEMENT concept $slot current_views=$i"
       $generatedRefs=@($task.image_urls | Where-Object { $_ })
-      $suppPrompt=$global+"`n`nREQUESTED SLOT:`n"+$slotPrompts[$slot]+"`n`nGenerate ONE additional opposite/rear product view of EXACTLY the same already-generated object. Preserve every design detail, scale, materials and proportions. Do not redesign it and do not add any other object."
+      $suppPrompt=$global+"`n`nREQUESTED SLOT:`n"+$slotPrompts[$slot]+"`n`nGenerate ONE additional opposite/rear product view of EXACTLY the same already-generated object or matched pair. Preserve every design detail, scale, materials and proportions. Do not redesign it and do not add any other object."
       $sc=Call 'POST' '/openapi/v1/image-to-image' @{ai_model='gpt-image-2';prompt=$suppPrompt;reference_image_urls=$generatedRefs;generate_multi_view=$false;remove_background=$true}
       $st=WaitTask '/openapi/v1/image-to-image' $sc.result 2400
       $st|ConvertTo-Json -Depth 16|Set-Content -LiteralPath (Join-Path $reportRoot ("{0}_supplement_task.json" -f $slot)) -Encoding UTF8
@@ -111,7 +121,6 @@ foreach($slot in $slotPrompts.Keys){
       }
       $summary.supplemented += $slot
     }
-
     if($i -lt 3){ throw "Concept $slot returned only $i views even after supplement" }
     $summary.generated += $slot
     Write-Host "CONCEPT_DONE $slot views=$i credits_primary=$($task.consumed_credits)"
