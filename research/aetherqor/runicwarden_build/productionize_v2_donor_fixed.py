@@ -5,8 +5,9 @@ import os
 # 1) salvage waist armor into Belt before it is swallowed by Legs/Chest/bodylike,
 # 2) allow aggressive decimation below 1% for the 3M-triangle donor,
 # 3) cap reused Sword/Shield triangles so the 40k technical gate is meaningful,
-# 4) force deforming gear to be a true child of the armature and verify skin weights,
-# 5) keep Meshy calls at zero.
+# 4) make Data Transfer actually create/populate destination vertex groups,
+# 5) force deforming gear to be a true child of the armature and verify skin weights,
+# 6) keep Meshy calls at zero.
 
 here = os.path.dirname(os.path.abspath(__file__))
 base = os.path.join(here, 'productionize_v2_donor.py')
@@ -37,6 +38,14 @@ if old not in src:
     raise RuntimeError('PATCH_FAIL_WEAPON_BUDGET')
 src = src.replace(old, new, 1)
 
+# Blender's Data Transfer modifier does not create destination vertex groups for us.
+# Pre-create the same group names that exist on the rigged body, then transfer weights.
+old = """    for vg in list(o.vertex_groups): o.vertex_groups.remove(vg)\n    m=o.modifiers.new('AQ_DataTransfer','DATA_TRANSFER'); m.object=body; m.use_vert_data=True; m.data_types_verts={'VGROUP_WEIGHTS'}; m.vert_mapping='POLYINTERP_NEAREST'"""
+new = """    for vg in list(o.vertex_groups): o.vertex_groups.remove(vg)\n    for vg in body.vertex_groups: o.vertex_groups.new(name=vg.name)\n    m=o.modifiers.new('AQ_DataTransfer','DATA_TRANSFER'); m.object=body; m.use_vert_data=True; m.data_types_verts={'VGROUP_WEIGHTS'}; m.vert_mapping='POLYINTERP_NEAREST'"""
+if old not in src:
+    raise RuntimeError('PATCH_FAIL_CREATE_VGROUPS')
+src = src.replace(old, new, 1)
+
 # glTF requires the armature to be the actual parent of deforming meshes.
 # Preserve world transform, keep the Armature modifier, and make the relationship explicit.
 old = """    am=o.modifiers.new('AQ_Armature','ARMATURE'); am.object=ar"""
@@ -45,8 +54,8 @@ if old not in src:
     raise RuntimeError('PATCH_FAIL_ARMATURE_PARENT')
 src = src.replace(old, new, 1)
 
-# Safety fallback: if the first-pass classifier still yields no Belt, select the
-# best surviving central waist component and move it from Legs/Chest to Belt.
+# Safety fallback: if the first-pass classifier still yields no Belt, derive a waist shell
+# from existing donor geometry only. No duplicate Meshy generation.
 needle = """required=['Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak']\nmissing=[s for s in required if s not in slotobj]\nif missing: raise RuntimeError('MISSING_SEGMENTED_SLOTS '+','.join(missing))"""
 replacement = """required=['Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak']\nmissing=[s for s in required if s not in slotobj]\nif 'Belt' in missing:\n    source = slotobj.get('Chest') or slotobj.get('Legs')\n    if source:\n        belt = source.copy(); belt.data = source.data.copy(); bpy.context.scene.collection.objects.link(belt); belt.name='GEAR_Belt'\n        bpy.context.view_layer.objects.active=belt; belt.select_set(True)\n        bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='DESELECT'); bpy.ops.object.mode_set(mode='OBJECT')\n        z0=bmn.z+H*.36; z1=bmn.z+H*.58\n        for v in belt.data.vertices:\n            wz=(belt.matrix_world@v.co).z\n            v.select = (z0 <= wz <= z1)\n        bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_mode(type='VERT'); bpy.ops.mesh.select_all(action='INVERT'); bpy.ops.mesh.delete(type='VERT'); bpy.ops.object.mode_set(mode='OBJECT'); belt.select_set(False)\n        if len(belt.data.vertices)>0 and tri(belt)>0:\n            decimate(belt,1400); slotobj['Belt']=belt; missing=[s for s in required if s not in slotobj]; log('Belt fallback shell created from donor geometry')\n        else:\n            bpy.data.objects.remove(belt,do_unlink=True)\nif missing: raise RuntimeError('MISSING_SEGMENTED_SLOTS '+','.join(missing))"""
 if needle not in src:
