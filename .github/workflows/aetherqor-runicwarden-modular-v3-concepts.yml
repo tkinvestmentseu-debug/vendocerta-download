@@ -1,0 +1,57 @@
+name: AETHERQOR RunicWarden Modular V3 Concepts
+
+on:
+  push:
+    paths:
+      - 'research/aetherqor/runicwarden_build/MODULAR_V3_CONCEPTS_TRIGGER.txt'
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-runicwarden-modular-v3-concepts
+  cancel-in-progress: true
+
+jobs:
+  concepts:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate or resume 11 isolated modular slot turnarounds
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $source='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\aaa_donor_v2_33985461656'
+          $master='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\modular_v3_master'
+          if(-not (Test-Path -LiteralPath $source)){ throw "V2 source missing: $source" }
+          & "$env:GITHUB_WORKSPACE\research\aetherqor\runicwarden_build\modular_v3_concepts.ps1" -SourceV2Root $source -OutputRoot $master
+          if(-not $?){ throw 'V3 concept generation failed.' }
+          "AQ_V3_MASTER=$master" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Hard concept completeness gate
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $slots=@('Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak','Sword','Shield','ClassRelic')
+          foreach($s in $slots){
+            $d=Join-Path $env:AQ_V3_MASTER ("concepts\$s")
+            $n=@(Get-ChildItem -LiteralPath $d -File -Filter 'view_*.png' -ErrorAction SilentlyContinue).Count
+            if($n -lt 3){ throw "CONCEPT_INCOMPLETE $s views=$n" }
+          }
+          $sum=Join-Path $env:AQ_V3_MASTER 'reports\CONCEPT_SUMMARY.json'
+          if(-not (Test-Path -LiteralPath $sum)){ throw 'CONCEPT_SUMMARY missing' }
+          $j=Get-Content -LiteralPath $sum -Raw | ConvertFrom-Json
+          if($j.failed.Count -gt 0){ throw "CONCEPT_FAILURES=$($j.failed.Count)" }
+          Write-Host "CONCEPT_GATE_READY credits_used=$($j.credits_used) balance_end=$($j.balance_end)"
+
+      - name: Upload lightweight 11-slot visual gate
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR_RUNIC_WARDEN_MODULAR_V3_CONCEPT_GATE
+          path: |
+            ${{ env.AQ_V3_MASTER }}\concepts\**\*.png
+            ${{ env.AQ_V3_MASTER }}\reports\CONCEPT_SUMMARY.json
+          retention-days: 7
+          compression-level: 0
