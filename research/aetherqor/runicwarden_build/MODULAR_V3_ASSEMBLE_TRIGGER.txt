@@ -1,1 +1,1 @@
-Retry Runic Warden V5 existing-mesh visual-only repair after auto-resolving Body_Rigged; Meshy forbidden. 2026-09-07T07:36+02:00
+Trigger Runic Warden V6 existing-mesh static repair with front/back shell closure; Meshy forbidden. 2026-09-07T10:34+02:00
