@@ -24,9 +24,31 @@ jobs:
         run: |
           $ErrorActionPreference='Stop'
           $master='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\modular_v3_master'
-          $body='D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265\generated\models\Body_Rigged.glb'
           if(-not (Test-Path -LiteralPath $master)){ throw "V3 master missing: $master" }
-          if(-not (Test-Path -LiteralPath $body)){ throw "Body_Rigged missing: $body" }
+
+          $bodyCandidates=@(
+            'D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\resume_33979880265\generated\models\Body_Rigged.glb',
+            'D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds\finalize_33980393094\generated\models\Body_Rigged.glb',
+            'D:\Aetherfall - Realms of the Veil\Assets\Aetherqor\Art\Characters\RunicWarden\Body_Rigged.glb'
+          )
+          $body=$bodyCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+          if(-not $body){
+            Write-Host 'Known Body_Rigged paths missing. Searching existing pipeline outputs only...'
+            $roots=@(
+              'D:\AetherqorPipeline\ChatGPT_RunicWarden_Builds',
+              'D:\Aetherfall - Realms of the Veil\Assets\Aetherqor\Art\Characters\RunicWarden'
+            )
+            $hits=@()
+            foreach($r in $roots){
+              if(Test-Path -LiteralPath $r){
+                $hits += Get-ChildItem -LiteralPath $r -Filter 'Body_Rigged.glb' -File -Recurse -ErrorAction SilentlyContinue
+              }
+            }
+            $body=$hits | Where-Object { $_.FullName -notmatch 'SmokeTest' } | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if(-not $body){ throw 'Body_Rigged.glb not found in any existing pipeline/Unity location. Meshy remains forbidden.' }
+          if($body -match 'SmokeTest'){ throw "SMOKETEST_REJECTED body=$body" }
+
           foreach($s in @('Helmet','Chest','Shoulders','Gloves','Belt','Legs','Boots','Cloak','Sword','Shield','ClassRelic')){
             $p=Join-Path $master "models\$s\${s}_source.glb"
             if(-not (Test-Path -LiteralPath $p)){ throw "Missing V3 3D source: $p" }
