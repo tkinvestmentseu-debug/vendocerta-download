@@ -1,0 +1,148 @@
+{
+  "schema": 1,
+  "status": "PILOT_FAIL_NO_PROMOTION",
+  "completed_utc": "2026-09-07T05:38:38.1933076Z",
+  "source": "durable Blender checkpoint from existing Runic Warden V2 donor; zero external generation calls",
+  "pilot_slot": "Chest",
+  "replay_version": "flycat-aetherqor-1.0",
+  "mesh_signature": "a543a0db6f64c09b22b2c581a6c664a9cc82a3bec02fbc3c68a5f4c92b603401",
+  "deterministic_replay": true,
+  "triangles": {
+    "source": 5199,
+    "replay": 5199,
+    "budget": 5200,
+    "pass": true
+  },
+  "donor_fidelity": {
+    "projected_silhouette_iou_300px": 0.0,
+    "pass": false
+  },
+  "screen_space": {
+    "90": {
+      "visible_pixels": 0,
+      "bbox_width_px": 0,
+      "bbox_height_px": 0,
+      "perimeter_pixels": 0,
+      "edge_density": null
+    },
+    "150": {
+      "visible_pixels": 0,
+      "bbox_width_px": 0,
+      "bbox_height_px": 0,
+      "perimeter_pixels": 0,
+      "edge_density": null
+    },
+    "220": {
+      "visible_pixels": 0,
+      "bbox_width_px": 0,
+      "bbox_height_px": 0,
+      "perimeter_pixels": 0,
+      "edge_density": null
+    },
+    "300": {
+      "visible_pixels": 0,
+      "bbox_width_px": 0,
+      "bbox_height_px": 0,
+      "perimeter_pixels": 0,
+      "edge_density": null
+    }
+  },
+  "screen_space_pass": false,
+  "rig": {
+    "vertex_groups": 24,
+    "weighted_vertices": 4965,
+    "total_vertices": 4965,
+    "weighted_fraction": 1.0,
+    "max_influences_observed": 6,
+    "armature_modifiers": 1,
+    "parent_is_armature": true
+  },
+  "rig_pass": true,
+  "penetration": {
+    "bind": {
+      "samples": 2200,
+      "inside_body_samples": 0,
+      "near_surface_samples": 0,
+      "inside_fraction": 0.0,
+      "signed_clearance_min_m": 13.955224625766277,
+      "signed_clearance_median_m": 14.195365275489166,
+      "method": "nearest_surface_normal_signed_distance_proxy",
+      "epsilon_m": 0.00035
+    },
+    "stress_pose": {
+      "samples": 2200,
+      "inside_body_samples": 0,
+      "near_surface_samples": 0,
+      "inside_fraction": 0.0,
+      "signed_clearance_min_m": 13.963177509605885,
+      "signed_clearance_median_m": 14.195572883356363,
+      "method": "nearest_surface_normal_signed_distance_proxy",
+      "epsilon_m": 0.00035,
+      "applied_bones": [
+        "spine:Spine02",
+        "upperarm_l:LeftArm",
+        "upperarm_r:RightArm"
+      ],
+      "pose_kind": "procedural_non_bind_stress_pose"
+    },
+    "pass": true
+  },
+  "unity": {
+    "status": "PASS",
+    "unityVersion": "6000.4.8f1",
+    "modelAssetPath": "Assets/FlyCatPilot/FlyCat_Chest_Pilot.fbx",
+    "rendererCount": 2,
+    "skinnedRendererCount": 2,
+    "meshRendererCount": 0,
+    "bodyRendererCount": 1,
+    "gearRendererCount": 1,
+    "allMaterialsNonNull": true,
+    "allShadersNonNull": true,
+    "gearOnOffIndependent": true,
+    "bodyStayedEnabledWhenGearOff": true,
+    "proceduralPoseApplied": true,
+    "proceduralPoseBakeFinite": true,
+    "proceduralPoseBone": "Spine02",
+    "bakedBoundsDeltaMagnitude": 0.06255892664194107,
+    "renderers": [
+      {
+        "name": "BODY_BASE",
+        "type": "SkinnedMeshRenderer",
+        "triangles": 119890,
+        "materials": 1,
+        "bones": 24,
+        "rootBone": true,
+        "enabled": true,
+        "finiteBounds": true
+      },
+      {
+        "name": "FLYCAT_Chest_Pilot",
+        "type": "SkinnedMeshRenderer",
+        "triangles": 5199,
+        "materials": 1,
+        "bones": 24,
+        "rootBone": true,
+        "enabled": true,
+        "finiteBounds": true
+      }
+    ],
+    "warnings": []
+  },
+  "unity_pass": true,
+  "methodology": {
+    "source_command_parity": "not_claimed",
+    "geometry_intent": "FlyCat evidence-derived",
+    "remesh_used": false,
+    "plate_boundaries_preserved": true,
+    "modular_slot_preserved": true
+  },
+  "gates": {
+    "deterministic": true,
+    "triangle_budget": true,
+    "rig": true,
+    "silhouette": false,
+    "screen_space": false,
+    "penetration": true,
+    "unity": true
+  }
+}
