@@ -26,7 +26,7 @@ jobs:
       - name: Checkout POC branch
         uses: actions/checkout@v4
 
-      - name: Resolve Unity and create isolated project
+      - name: Resolve Unity and create isolated 4K project
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -40,6 +40,7 @@ jobs:
           $out=Join-Path $root 'Output'
           if(Test-Path -LiteralPath $root){ Remove-Item -LiteralPath $root -Recurse -Force }
           New-Item -ItemType Directory -Force -Path $root,$out | Out-Null
+
           $createLog=Join-Path $out 'unity_create.log'
           $args=@('-batchmode','-quit','-createProject',$proj,'-logFile',$createLog)
           $p=Start-Process -FilePath $unity -ArgumentList $args -Wait -PassThru -NoNewWindow
@@ -47,24 +48,34 @@ jobs:
             Get-Content -LiteralPath $createLog -Tail 220 -ErrorAction SilentlyContinue
             throw "Unity POC create failed exit=$($p.ExitCode)"
           }
+
           New-Item -ItemType Directory -Force -Path (Join-Path $proj 'Assets\AETHERQOR_UI_POC\Editor'),(Join-Path $proj 'Assets\AETHERQOR_UI_POC\Textures') | Out-Null
           Copy-Item "$env:GITHUB_WORKSPACE\aetherqor-ui-poc\Assets\AETHERQOR_UI_POC\AetherqorInventoryScrollDemoV2.cs" (Join-Path $proj 'Assets\AETHERQOR_UI_POC\AetherqorInventoryScrollDemoV2.cs') -Force
           Copy-Item "$env:GITHUB_WORKSPACE\aetherqor-ui-poc\Assets\AETHERQOR_UI_POC\Editor\AetherqorInventoryPOCBuilderV2.cs" (Join-Path $proj 'Assets\AETHERQOR_UI_POC\Editor\AetherqorInventoryPOCBuilderV2.cs') -Force
+
+          $skinRaw=Join-Path $root 'AQ_inventory_skin_source.png'
           $skin=Join-Path $proj 'Assets\AETHERQOR_UI_POC\Textures\AQ_inventory_skin.png'
-          Invoke-WebRequest -Uri $env:AQ_SKIN_URL -OutFile $skin -MaximumRedirection 10
-          if(-not (Test-Path -LiteralPath $skin)){ throw 'Dark fantasy skin download failed.' }
+          Invoke-WebRequest -Uri $env:AQ_SKIN_URL -OutFile $skinRaw -MaximumRedirection 10
+          if(-not (Test-Path -LiteralPath $skinRaw)){ throw 'Dark fantasy skin download failed.' }
+
+          $ffmpeg=Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if(-not $ffmpeg){ throw 'ffmpeg required for 4K master upscale but was not found.' }
+          & $ffmpeg.Source -y -i $skinRaw -vf "scale=4680:2160:flags=lanczos,unsharp=5:5:0.55:5:5:0.0" $skin
+          if($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $skin)){ throw '4K dark fantasy master generation failed.' }
+
           $manifest=Join-Path $proj 'Packages\manifest.json'
           $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
           if(-not $m.dependencies.'com.unity.ugui'){ $m.dependencies | Add-Member -NotePropertyName 'com.unity.ugui' -NotePropertyValue '2.0.0' }
           $m | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifest -Encoding utf8
+
           "AQ_UI_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "AQ_UI_PROJECT=$proj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "AQ_UI_OUT=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "UNITY_EXE=$unity" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Unity=$unity"
-          Write-Host "Skin=$skin"
+          Write-Host "Skin4K=$skin"
 
-      - name: Build 1-to-1 dark fantasy scene and capture real scroll
+      - name: Build Figma-matched dark fantasy scene and capture scroll
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -77,16 +88,16 @@ jobs:
           }
           Get-Content -LiteralPath (Join-Path $env:AQ_UI_OUT 'validation.txt')
 
-      - name: Encode dark fantasy scroll proof
+      - name: Encode scroll proof
         shell: pwsh
         run: |
           $ffmpeg=Get-Command ffmpeg -ErrorAction SilentlyContinue
           if($ffmpeg){
-            & $ffmpeg.Source -y -framerate 15 -i "$env:AQ_UI_OUT\frames\frame_%03d.png" -vf "scale=1280:590" -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p -movflags +faststart "$env:AQ_UI_OUT\AQ_DARK_SCROLL.mp4"
+            & $ffmpeg.Source -y -framerate 15 -i "$env:AQ_UI_OUT\frames\frame_%03d.png" -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p -movflags +faststart "$env:AQ_UI_OUT\AQ_DARK_SCROLL.mp4"
             if($LASTEXITCODE -ne 0){ Write-Warning 'ffmpeg failed; PNG proof frames remain.' }
-          } else { Write-Warning 'ffmpeg unavailable; PNG proof frames remain.' }
+          }
 
-      - name: Install validated dark fantasy POC into live AETHERQOR Assets
+      - name: Install validated 4K POC into live AETHERQOR
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
@@ -108,6 +119,7 @@ jobs:
           name: AETHERQOR-Figma-DarkFantasy-Inventory-Unity-4K
           path: |
             ${{ env.AQ_UI_OUT }}\AQ_DARK_TOP.png
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_TOP_4K.png
             ${{ env.AQ_UI_OUT }}\AQ_DARK_MIDDLE.png
             ${{ env.AQ_UI_OUT }}\AQ_DARK_BOTTOM.png
             ${{ env.AQ_UI_OUT }}\AQ_DARK_SCROLL.mp4
