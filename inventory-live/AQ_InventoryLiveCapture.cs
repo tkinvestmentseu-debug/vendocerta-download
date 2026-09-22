@@ -27,7 +27,7 @@ public static class AQ_InventoryLiveCapture
             throw new Exception("WRONG PROJECT: " + data);
 
         ConfigureTexture();
-        if (!File.Exists(Path.GetFullPath(SCENE))) throw new Exception("Scene missing: " + SCENE);
+        string sceneFs = Path.Combine(Path.GetDirectoryName(Application.dataPath), SCENE.Replace("/", Path.DirectorySeparatorChar.ToString()));\n        if (!File.Exists(sceneFs)) throw new Exception("Scene missing: " + sceneFs);
         EditorSceneManager.OpenScene(SCENE, OpenSceneMode.Single);
         EditorPrefs.SetBool(RUN, true);
         frames = 0; built = false;
