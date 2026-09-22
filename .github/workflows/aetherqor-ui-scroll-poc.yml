@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 35
     env:
       AQ_REAL_PROJECT: 'D:\Aetherfall - Realms of the Veil'
-      AQ_SKIN_URL: 'https://at.adobe.com/6C8EDcUmiFS8vQWz'
+      AQ_SKIN_URL: 'https://at.adobe.com/HSwngoBWHzAiJ7dd'
     steps:
       - name: Checkout POC branch
         uses: actions/checkout@v4
@@ -105,7 +105,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AETHERQOR-DarkFantasy-Inventory-Unity-POC
+          name: AETHERQOR-Figma-DarkFantasy-Inventory-Unity-4K
           path: |
             ${{ env.AQ_UI_OUT }}\AQ_DARK_TOP.png
             ${{ env.AQ_UI_OUT }}\AQ_DARK_MIDDLE.png
