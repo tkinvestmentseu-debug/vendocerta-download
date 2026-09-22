@@ -34,7 +34,7 @@ jobs:
           if(-not (Test-Path -LiteralPath $spec)){ throw "Spec missing: $spec" }
           Copy-Item -LiteralPath $spec -Destination (Join-Path $out 'EKRAN_EKWIPUNEK_FIGMA_UNITY_SPEC.md') -Force
 
-          $names=@('AQ_VberAIPortretGracza.cs','AQ_VberAIStylBDM.cs','AQ_VberAIKit.cs')
+          $names=@('AQ_VberAIPortretGracza.cs','AQ_VberAIStylBDM.cs','AQ_VberAIKit.cs','AQ_VberAIUklad.cs')
           foreach($name in $names){
             $match=Get-ChildItem -LiteralPath (Join-Path $env:AQ_PROJECT 'Assets') -Recurse -File -Filter $name -ErrorAction SilentlyContinue | Select-Object -First 1
             if(-not $match){ throw "Required source not found: $name" }
