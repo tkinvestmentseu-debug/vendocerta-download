@@ -46,7 +46,6 @@ public static class AetherqorInventoryPOCBuilder
             var cam = GameObject.Find("AQ_UI_Camera")?.GetComponent<Camera>();
             if (cam == null) throw new Exception("AQ_UI_Camera not found");
 
-            // Validate core mobile UI contract.
             int runeCount = 0;
             int gearCount = 0;
             int itemCount = 0;
@@ -56,24 +55,40 @@ public static class AetherqorInventoryPOCBuilder
                 else if (tr.name.StartsWith("GearL_") || tr.name.StartsWith("GearR_")) gearCount++;
                 else if (tr.name.StartsWith("Item_")) itemCount++;
             }
+
             if (runeCount != 8) throw new Exception("Expected exactly 8 rune slots, got " + runeCount);
             if (itemCount != 48) throw new Exception("Expected 48 inventory slots, got " + itemCount);
             if (demo.InventoryScroll == null || !demo.InventoryScroll.vertical || demo.InventoryScroll.horizontal)
                 throw new Exception("ScrollRect is not configured for vertical-only scrolling");
 
-            // Capture top / middle / bottom and animation frames.
+            demo.SetScroll01(0f);
+            Canvas.ForceUpdateCanvases();
+            float topY = demo.InventoryContent.anchoredPosition.y;
             Capture(cam, Path.Combine(outDir, "AQ_inventory_TOP.png"));
+
             demo.SetScroll01(0.50f);
+            Canvas.ForceUpdateCanvases();
+            float middleY = demo.InventoryContent.anchoredPosition.y;
             Capture(cam, Path.Combine(outDir, "AQ_inventory_MIDDLE.png"));
-            demo.SetScroll01(1.00f);
+
+            const float bottomProofT = 0.88f;
+            demo.SetScroll01(bottomProofT);
+            Canvas.ForceUpdateCanvases();
+            float bottomY = demo.InventoryContent.anchoredPosition.y;
             Capture(cam, Path.Combine(outDir, "AQ_inventory_BOTTOM.png"));
+
+            float middleTravel = Mathf.Abs(middleY - topY);
+            float bottomTravel = Mathf.Abs(bottomY - topY);
+            if (middleTravel < 100f || bottomTravel < 250f)
+                throw new Exception($"Scroll proof failed: topY={topY:F2} middleY={middleY:F2} bottomY={bottomY:F2}");
 
             const int n = 31;
             for (int i = 0; i < n; i++)
             {
                 float t = i / (float)(n - 1);
-                float eased = Mathf.SmoothStep(0f, 1f, t);
+                float eased = Mathf.SmoothStep(0f, bottomProofT, t);
                 demo.SetScroll01(eased);
+                Canvas.ForceUpdateCanvases();
                 Capture(cam, Path.Combine(frames, $"frame_{i:000}.png"));
             }
 
@@ -89,6 +104,12 @@ public static class AetherqorInventoryPOCBuilder
                 "HorizontalScroll=false\n" +
                 "Inertia=true\n" +
                 "Scrollbar=permanent large mobile thumb\n" +
+                $"TopContentY={topY:F2}\n" +
+                $"MiddleContentY={middleY:F2}\n" +
+                $"BottomProofContentY={bottomY:F2}\n" +
+                $"MiddleTravelPx={middleTravel:F2}\n" +
+                $"BottomTravelPx={bottomTravel:F2}\n" +
+                $"BottomProofT={bottomProofT:F2}\n" +
                 $"Scene={scenePath}\n");
 
             AssetDatabase.SaveAssets();
