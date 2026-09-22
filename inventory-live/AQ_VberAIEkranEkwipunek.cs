@@ -157,10 +157,14 @@ public static class AQ_VberAIEkranEkwipunek
     private static void BudujPortret(Transform p)
     {
         var host = AQ_VberAIUklad.Prostokat(p,"AQ_PodgladPostaci",new Rect(449.7f,118.3f,504.9f,639f));
-        _portret = host.gameObject.AddComponent<RawImage>();
+        var child = new GameObject("RawImage", typeof(RectTransform), typeof(RawImage), typeof(AspectRatioFitter));
+        child.transform.SetParent(host, false);
+        var crt = child.GetComponent<RectTransform>();
+        crt.anchorMin = Vector2.zero; crt.anchorMax = Vector2.one; crt.offsetMin = Vector2.zero; crt.offsetMax = Vector2.zero;
+        _portret = child.GetComponent<RawImage>();
         _portret.color = Color.white;
         _portret.raycastTarget = true;
-        var ar = host.gameObject.AddComponent<AspectRatioFitter>();
+        var ar = child.GetComponent<AspectRatioFitter>();
         ar.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
         ar.aspectRatio = 768f/1024f;
         AQ_VberAIPortretGracza.PodepnijObrot(_portret);
