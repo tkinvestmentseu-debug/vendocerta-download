@@ -25,6 +25,17 @@ public static class AetherqorInventoryPOCBuilderV2
             Directory.CreateDirectory(frames);
 
             AssetDatabase.ImportAsset(SkinPath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
+            var importer = AssetImporter.GetAtPath(SkinPath) as TextureImporter;
+            if (importer == null) throw new Exception("TextureImporter missing for " + SkinPath);
+            importer.textureType = TextureImporterType.Default;
+            importer.sRGBTexture = true;
+            importer.alphaIsTransparency = false;
+            importer.mipmapEnabled = false;
+            importer.npotScale = TextureImporterNPOTScale.None;
+            importer.textureCompression = TextureImporterCompression.Uncompressed;
+            importer.crunchedCompression = false;
+            importer.maxTextureSize = 8192;
+            importer.SaveAndReimport();
             var skin = AssetDatabase.LoadAssetAtPath<Texture2D>(SkinPath);
             if (skin == null) throw new Exception("Dark fantasy skin missing: " + SkinPath);
             if (skin.width < 1000 || skin.height < 500)
@@ -63,15 +74,16 @@ public static class AetherqorInventoryPOCBuilderV2
 
             demo.SetScroll01(0f);
             float topY = demo.InventoryContent.anchoredPosition.y;
-            Capture(cam, Path.Combine(outDir, "AQ_DARK_TOP.png"));
+            Capture(cam, Path.Combine(outDir, "AQ_DARK_TOP.png"), 2340, 1080);
+            Capture(cam, Path.Combine(outDir, "AQ_DARK_TOP_4K.png"), 4680, 2160);
 
             demo.SetScroll01(0.5f);
             float midY = demo.InventoryContent.anchoredPosition.y;
-            Capture(cam, Path.Combine(outDir, "AQ_DARK_MIDDLE.png"));
+            Capture(cam, Path.Combine(outDir, "AQ_DARK_MIDDLE.png"), 2340, 1080);
 
             demo.SetScroll01(1f);
             float bottomY = demo.InventoryContent.anchoredPosition.y;
-            Capture(cam, Path.Combine(outDir, "AQ_DARK_BOTTOM.png"));
+            Capture(cam, Path.Combine(outDir, "AQ_DARK_BOTTOM.png"), 2340, 1080);
 
             float travel = Mathf.Abs(bottomY - topY);
             if (travel < 700f)
@@ -82,14 +94,16 @@ public static class AetherqorInventoryPOCBuilderV2
             {
                 float t = i / (float)(count - 1);
                 demo.SetScroll01(Mathf.SmoothStep(0f, 1f, t));
-                Capture(cam, Path.Combine(frames, $"frame_{i:000}.png"));
+                Capture(cam, Path.Combine(frames, $"frame_{i:000}.png"), 1280, 590);
             }
 
             File.WriteAllText(Path.Combine(outDir, "validation.txt"),
                 "AETHERQOR DARK FANTASY UNITY POC\n" +
-                "BaseDesign=approved generated screen used 1:1 as Unity texture with 13:6 center crop\n" +
+                "BaseDesign=approved generated screen used 1:1; Figma component geometry mirrored in Unity\n" +
+                "FigmaFile=https://www.figma.com/design/FTxHbKquUz80UmikO4hVPv\n" +
                 $"ImportedSkinResolution={skin.width}x{skin.height}\n" +
                 $"UnityReferenceResolution={W}x{H}\n" +
+                "MasterTextureTarget=4680x2160 uncompressed, mipmaps OFF, maxTextureSize 8192\n" +
                 "ModelArea=EMPTY dedicated AETHERQOR_MODEL_3D_ANCHOR\n" +
                 $"EmptyInventorySlots={emptySlots}\n" +
                 "InventoryColumns=4\n" +
@@ -114,17 +128,17 @@ public static class AetherqorInventoryPOCBuilderV2
         }
     }
 
-    static void Capture(Camera cam, string path)
+    static void Capture(Camera cam, string path, int width, int height)
     {
-        var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGB32);
+        var rt = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
         var prevTarget = cam.targetTexture;
         var prevActive = RenderTexture.active;
         cam.targetTexture = rt;
         RenderTexture.active = rt;
         cam.Render();
 
-        var tex = new Texture2D(W, H, TextureFormat.RGBA32, false);
-        tex.ReadPixels(new Rect(0, 0, W, H), 0, 0, false);
+        var tex = new Texture2D(width, height, TextureFormat.RGBA32, false);
+        tex.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
         tex.Apply(false, false);
         File.WriteAllBytes(path, tex.EncodeToPNG());
 
