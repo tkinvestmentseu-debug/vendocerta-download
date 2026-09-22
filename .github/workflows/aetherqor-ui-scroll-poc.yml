@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 35
     env:
       AQ_REAL_PROJECT: 'D:\Aetherfall - Realms of the Veil'
+      AQ_SKIN_URL: 'https://at.adobe.com/6C8EDcUmiFS8vQWz'
     steps:
       - name: Checkout POC branch
         uses: actions/checkout@v4
@@ -46,9 +47,12 @@ jobs:
             Get-Content -LiteralPath $createLog -Tail 220 -ErrorAction SilentlyContinue
             throw "Unity POC create failed exit=$($p.ExitCode)"
           }
-          New-Item -ItemType Directory -Force -Path (Join-Path $proj 'Assets\AETHERQOR_UI_POC\Editor') | Out-Null
-          Copy-Item "$env:GITHUB_WORKSPACE\aetherqor-ui-poc\Assets\AETHERQOR_UI_POC\AetherqorInventoryScrollDemo.cs" (Join-Path $proj 'Assets\AETHERQOR_UI_POC\AetherqorInventoryScrollDemo.cs') -Force
-          Copy-Item "$env:GITHUB_WORKSPACE\aetherqor-ui-poc\Assets\AETHERQOR_UI_POC\Editor\AetherqorInventoryPOCBuilder.cs" (Join-Path $proj 'Assets\AETHERQOR_UI_POC\Editor\AetherqorInventoryPOCBuilder.cs') -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $proj 'Assets\AETHERQOR_UI_POC\Editor'),(Join-Path $proj 'Assets\AETHERQOR_UI_POC\Textures') | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\aetherqor-ui-poc\Assets\AETHERQOR_UI_POC\AetherqorInventoryScrollDemoV2.cs" (Join-Path $proj 'Assets\AETHERQOR_UI_POC\AetherqorInventoryScrollDemoV2.cs') -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\aetherqor-ui-poc\Assets\AETHERQOR_UI_POC\Editor\AetherqorInventoryPOCBuilderV2.cs" (Join-Path $proj 'Assets\AETHERQOR_UI_POC\Editor\AetherqorInventoryPOCBuilderV2.cs') -Force
+          $skin=Join-Path $proj 'Assets\AETHERQOR_UI_POC\Textures\AQ_inventory_skin.png'
+          Invoke-WebRequest -Uri $env:AQ_SKIN_URL -OutFile $skin -MaximumRedirection 10
+          if(-not (Test-Path -LiteralPath $skin)){ throw 'Dark fantasy skin download failed.' }
           $manifest=Join-Path $proj 'Packages\manifest.json'
           $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
           if(-not $m.dependencies.'com.unity.ugui'){ $m.dependencies | Add-Member -NotePropertyName 'com.unity.ugui' -NotePropertyValue '2.0.0' }
@@ -58,61 +62,55 @@ jobs:
           "AQ_UI_OUT=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "UNITY_EXE=$unity" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           Write-Host "Unity=$unity"
-          Write-Host "POC=$proj"
+          Write-Host "Skin=$skin"
 
-      - name: Build functional scene and capture vertical scroll
+      - name: Build 1-to-1 dark fantasy scene and capture real scroll
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $log=Join-Path $env:AQ_UI_OUT 'unity_build.log'
-          $args=@('-batchmode','-quit','-projectPath',$env:AQ_UI_PROJECT,'-executeMethod','AetherqorInventoryPOCBuilder.BuildAndCapture','-logFile',$log)
+          $args=@('-batchmode','-quit','-projectPath',$env:AQ_UI_PROJECT,'-executeMethod','AetherqorInventoryPOCBuilderV2.BuildAndCapture','-logFile',$log)
           $p=Start-Process -FilePath $env:UNITY_EXE -ArgumentList $args -Wait -PassThru -NoNewWindow
-          if($p.ExitCode -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $env:AQ_UI_OUT 'AQ_inventory_TOP.png'))){
-            Get-Content -LiteralPath $log -Tail 260 -ErrorAction SilentlyContinue
-            throw "Unity UI POC failed exit=$($p.ExitCode)"
+          if($p.ExitCode -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $env:AQ_UI_OUT 'AQ_DARK_TOP.png'))){
+            Get-Content -LiteralPath $log -Tail 280 -ErrorAction SilentlyContinue
+            throw "Unity dark UI POC failed exit=$($p.ExitCode)"
           }
-          Get-Content -LiteralPath (Join-Path $env:AQ_UI_OUT 'validation.txt') -ErrorAction SilentlyContinue
+          Get-Content -LiteralPath (Join-Path $env:AQ_UI_OUT 'validation.txt')
 
-      - name: Encode real Unity scroll demonstration
+      - name: Encode dark fantasy scroll proof
         shell: pwsh
         run: |
           $ffmpeg=Get-Command ffmpeg -ErrorAction SilentlyContinue
           if($ffmpeg){
-            & $ffmpeg.Source -y -framerate 15 -i "$env:AQ_UI_OUT\frames\frame_%03d.png" -c:v libx264 -pix_fmt yuv420p "$env:AQ_UI_OUT\AQ_inventory_SCROLL.mp4"
-            if($LASTEXITCODE -ne 0){ Write-Warning 'ffmpeg failed; Unity proof PNGs remain.' }
-          } else { Write-Warning 'ffmpeg unavailable; Unity proof PNGs remain.' }
+            & $ffmpeg.Source -y -framerate 15 -i "$env:AQ_UI_OUT\frames\frame_%03d.png" -vf "scale=1280:590" -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p -movflags +faststart "$env:AQ_UI_OUT\AQ_DARK_SCROLL.mp4"
+            if($LASTEXITCODE -ne 0){ Write-Warning 'ffmpeg failed; PNG proof frames remain.' }
+          } else { Write-Warning 'ffmpeg unavailable; PNG proof frames remain.' }
 
-      - name: Install validated POC into live AETHERQOR Assets
+      - name: Install validated dark fantasy POC into live AETHERQOR Assets
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
-          if(-not (Test-Path -LiteralPath $env:AQ_REAL_PROJECT)){
-            Write-Warning "Live project not found: $env:AQ_REAL_PROJECT"
-            exit 0
-          }
+          if(-not (Test-Path -LiteralPath $env:AQ_REAL_PROJECT)){ Write-Warning "Live project not found: $env:AQ_REAL_PROJECT"; exit 0 }
           $src=Join-Path $env:AQ_UI_PROJECT 'Assets\AETHERQOR_UI_POC'
           $dst=Join-Path $env:AQ_REAL_PROJECT 'Assets\AETHERQOR_UI_POC'
           if(Test-Path -LiteralPath $dst){
             $stamp=Get-Date -Format 'yyyyMMdd_HHmmss'
-            $backup="${dst}_BACKUP_$stamp"
-            Copy-Item -LiteralPath $dst -Destination $backup -Recurse -Force
-            Write-Host "Backup=$backup"
+            Copy-Item -LiteralPath $dst -Destination "${dst}_BACKUP_$stamp" -Recurse -Force
           }
           New-Item -ItemType Directory -Force -Path $dst | Out-Null
           Copy-Item (Join-Path $src '*') $dst -Recurse -Force
           "InstalledTo=$dst" | Set-Content -LiteralPath (Join-Path $env:AQ_UI_OUT 'install.txt') -Encoding utf8
-          Write-Host "Installed=$dst"
 
       - name: Upload Unity proof
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: AETHERQOR-Unity-Inventory-Scroll-POC
+          name: AETHERQOR-DarkFantasy-Inventory-Unity-POC
           path: |
-            ${{ env.AQ_UI_OUT }}\AQ_inventory_TOP.png
-            ${{ env.AQ_UI_OUT }}\AQ_inventory_MIDDLE.png
-            ${{ env.AQ_UI_OUT }}\AQ_inventory_BOTTOM.png
-            ${{ env.AQ_UI_OUT }}\AQ_inventory_SCROLL.mp4
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_TOP.png
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_MIDDLE.png
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_BOTTOM.png
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_SCROLL.mp4
             ${{ env.AQ_UI_OUT }}\validation.txt
             ${{ env.AQ_UI_OUT }}\install.txt
             ${{ env.AQ_UI_OUT }}\unity_create.log
