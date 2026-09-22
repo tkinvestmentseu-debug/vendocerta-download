@@ -1,11 +1,6 @@
 name: AETHERQOR Unity Mobile Inventory POC
 
 on:
-  pull_request:
-    branches: [ main ]
-    paths:
-      - "aetherqor-ui-poc/**"
-      - ".github/workflows/aetherqor-ui-scroll-poc.yml"
   workflow_dispatch:
 
 concurrency:
