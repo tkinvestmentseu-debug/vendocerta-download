@@ -71,7 +71,7 @@ public static class AetherqorInventoryPOCBuilder
             float middleY = demo.InventoryContent.anchoredPosition.y;
             Capture(cam, Path.Combine(outDir, "AQ_inventory_MIDDLE.png"));
 
-            const float bottomProofT = 0.88f;
+            const float bottomProofT = 0.50f;
             demo.SetScroll01(bottomProofT);
             Canvas.ForceUpdateCanvases();
             float bottomY = demo.InventoryContent.anchoredPosition.y;
@@ -79,7 +79,7 @@ public static class AetherqorInventoryPOCBuilder
 
             float middleTravel = Mathf.Abs(middleY - topY);
             float bottomTravel = Mathf.Abs(bottomY - topY);
-            if (middleTravel < 100f || bottomTravel < 250f)
+            if (middleTravel < 250f || bottomTravel < 250f)
                 throw new Exception($"Scroll proof failed: topY={topY:F2} middleY={middleY:F2} bottomY={bottomY:F2}");
 
             const int n = 31;
