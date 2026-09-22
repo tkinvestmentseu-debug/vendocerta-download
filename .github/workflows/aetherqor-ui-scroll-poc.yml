@@ -20,7 +20,7 @@ jobs:
     runs-on: [self-hosted, Windows, X64, aetherqor-video]
     timeout-minutes: 35
     env:
-      AQ_REAL_PROJECT: 'D:\Aetherfall - Realms of the Veil'
+      AQ_REAL_PROJECT: 'D:\Aetherqor\Gra'
       AQ_SKIN_URL: 'https://at.adobe.com/HSwngoBWHzAiJ7dd'
     steps:
       - name: Checkout POC branch
