@@ -1,0 +1,57 @@
+name: AETHERQOR Inspect Local UI APIs
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/aetherqor-inspect-local.yml"
+  workflow_dispatch:
+
+jobs:
+  inspect-local:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect spec and existing UI APIs
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $project='D:\Aetherqor\Gra'
+          if(-not (Test-Path -LiteralPath $project)){ throw "Project not found: $project" }
+          $out=Join-Path $env:RUNNER_TEMP "AQ_INSPECT_$env:GITHUB_RUN_ID"
+          if(Test-Path $out){ Remove-Item $out -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          $spec=Join-Path $project 'docs\procedury\EKRAN_EKWIPUNEK_FIGMA_UNITY_SPEC.md'
+          if(-not (Test-Path -LiteralPath $spec)){ throw "Spec missing: $spec" }
+          Copy-Item -LiteralPath $spec -Destination (Join-Path $out 'EKRAN_EKWIPUNEK_FIGMA_UNITY_SPEC.md') -Force
+
+          $names=@('AQ_VberAIPortretGracza.cs','AQ_VberAIStylBDM.cs','AQ_VberAIKit.cs')
+          foreach($name in $names){
+            $hits=Get-ChildItem -LiteralPath $project -Recurse -File -Filter $name -ErrorAction SilentlyContinue
+            if(-not $hits){ throw "Missing required file: $name" }
+            $i=0
+            foreach($h in $hits){
+              $dstName = if($i -eq 0){ $name } else { "$($h.BaseName)_$i$($h.Extension)" }
+              Copy-Item -LiteralPath $h.FullName -Destination (Join-Path $out $dstName) -Force
+              Add-Content -LiteralPath (Join-Path $out 'paths.txt') -Value "$name=$($h.FullName)"
+              $i++
+            }
+          }
+
+          $sceneHits=Get-ChildItem -LiteralPath $project -Recurse -File -Include '*.unity','*.cs' -ErrorAction SilentlyContinue |
+            Select-String -Pattern 'AQ_VberAIPortretGracza|AQ_VberAIKit|AQ_VberAIStylBDM|Ekwipunek|Inventory' -List -ErrorAction SilentlyContinue |
+            Select-Object -First 80
+          $sceneHits | ForEach-Object { "$($_.Path):$($_.LineNumber): $($_.Line)" } | Set-Content -LiteralPath (Join-Path $out 'references.txt') -Encoding utf8
+
+          "AQ_INSPECT_OUT=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload inspection bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR-Inventory-Local-Inspection
+          path: ${{ env.AQ_INSPECT_OUT }}
+          retention-days: 3
+          compression-level: 0
