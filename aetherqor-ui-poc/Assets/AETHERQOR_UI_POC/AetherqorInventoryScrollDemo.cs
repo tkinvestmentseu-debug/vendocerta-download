@@ -165,7 +165,8 @@ public class AetherqorInventoryScrollDemo : MonoBehaviour
     {
         if (FindObjectOfType<EventSystem>() != null) return;
         var go = new GameObject("AQ_EventSystem", typeof(EventSystem), typeof(StandaloneInputModule));
-        DontDestroyOnLoad(go);
+        if (Application.isPlaying)
+            DontDestroyOnLoad(go);
     }
 
     static RectTransform AddPanel(RectTransform parent, string name, Vector2 amin, Vector2 amax, Vector2 offMin, Vector2 offMax, Color color)
