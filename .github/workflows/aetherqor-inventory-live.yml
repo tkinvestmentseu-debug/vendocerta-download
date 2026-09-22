@@ -58,14 +58,14 @@ jobs:
           "AQ_CAPTURE_OUT=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "AQ_BACKUP=$backupRoot" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Run Unity 6000.4.8f1 Play Mode capture
+      - name: Run Unity 6000.4.8f1 live project capture
         shell: pwsh
         run: |
           $ErrorActionPreference='Stop'
           $unity='C:\Program Files\Unity\Hub\Editor\6000.4.8f1\Editor\Unity.exe'
           if(-not (Test-Path -LiteralPath $unity)){ throw 'Unity 6000.4.8f1 not found.' }
           $log=Join-Path $env:AQ_CAPTURE_OUT 'unity.log'
-          $args=@('-batchmode','-projectPath',$env:AQ_PROJECT,'-executeMethod','AQ_InventoryLiveCapture.StartCapture','-logFile',$log)
+          $args=@('-batchmode','-projectPath',$env:AQ_PROJECT,'-executeMethod','AQ_InventoryLiveCapture.CaptureEditMode','-quit','-logFile',$log)
           $p=Start-Process -FilePath $unity -ArgumentList $args -Wait -PassThru -NoNewWindow
           Get-Content -LiteralPath $log -Tail 320 -ErrorAction SilentlyContinue
           if($p.ExitCode -ne 0){ throw "Unity capture failed exit=$($p.ExitCode)" }
