@@ -1,0 +1,40 @@
+name: AETHERQOR Scene Audit
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/aetherqor-scenes-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scenes:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 10
+    env:
+      AQ_PROJECT: 'D:\Aetherqor\Gra'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Collect scenes
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP "AQ_SCENE_AUDIT_$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          $build=Join-Path $env:AQ_PROJECT 'ProjectSettings\EditorBuildSettings.asset'
+          if(Test-Path $build){ Copy-Item $build (Join-Path $out 'EditorBuildSettings.asset') -Force }
+          Get-ChildItem -LiteralPath (Join-Path $env:AQ_PROJECT 'Assets') -Recurse -File -Filter '*.unity' -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty FullName | Set-Content -LiteralPath (Join-Path $out 'scenes.txt') -Encoding utf8
+          Get-ChildItem -LiteralPath (Join-Path $env:AQ_PROJECT 'Assets') -Recurse -File -Filter '*.cs' -ErrorAction SilentlyContinue |
+            Select-String -Pattern 'AQ_GRACZ_EmberArcanist|AQ_GRACZ' -List |
+            ForEach-Object { $_.Path } | Set-Content -LiteralPath (Join-Path $out 'player_refs.txt') -Encoding utf8
+          "AQ_SCENE_OUT=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR-Scene-Audit
+          path: ${{ env.AQ_SCENE_OUT }}
+          retention-days: 3
+          compression-level: 0

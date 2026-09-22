@@ -1,0 +1,127 @@
+name: AETHERQOR Unity Mobile Inventory POC
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-ui-scroll-poc
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  unity-ui-poc:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 35
+    env:
+      AQ_REAL_PROJECT: 'D:\Aetherqor\Gra'
+      AQ_SKIN_URL: 'https://at.adobe.com/HSwngoBWHzAiJ7dd'
+    steps:
+      - name: Checkout POC branch
+        uses: actions/checkout@v4
+
+      - name: Resolve Unity and create isolated 4K project
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $unity='C:\Program Files\Unity\Hub\Editor\6000.4.8f1\Editor\Unity.exe'
+          if(-not (Test-Path -LiteralPath $unity)){
+            $unity=Get-ChildItem 'C:\Program Files\Unity\Hub\Editor' -Recurse -File -Filter Unity.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\Editor\\Unity\.exe$' } | Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if(-not $unity -or -not (Test-Path -LiteralPath $unity)){ throw 'Unity editor not found.' }
+          $root="D:\AetherqorPipeline\UI_POC_$env:GITHUB_RUN_ID"
+          $proj=Join-Path $root 'UnityProject'
+          $out=Join-Path $root 'Output'
+          if(Test-Path -LiteralPath $root){ Remove-Item -LiteralPath $root -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $root,$out | Out-Null
+
+          $createLog=Join-Path $out 'unity_create.log'
+          $args=@('-batchmode','-quit','-createProject',$proj,'-logFile',$createLog)
+          $p=Start-Process -FilePath $unity -ArgumentList $args -Wait -PassThru -NoNewWindow
+          if($p.ExitCode -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $proj 'Assets'))){
+            Get-Content -LiteralPath $createLog -Tail 220 -ErrorAction SilentlyContinue
+            throw "Unity POC create failed exit=$($p.ExitCode)"
+          }
+
+          New-Item -ItemType Directory -Force -Path (Join-Path $proj 'Assets\AETHERQOR_UI_POC\Editor'),(Join-Path $proj 'Assets\AETHERQOR_UI_POC\Textures') | Out-Null
+          Copy-Item "$env:GITHUB_WORKSPACE\aetherqor-ui-poc\Assets\AETHERQOR_UI_POC\AetherqorInventoryScrollDemoV2.cs" (Join-Path $proj 'Assets\AETHERQOR_UI_POC\AetherqorInventoryScrollDemoV2.cs') -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\aetherqor-ui-poc\Assets\AETHERQOR_UI_POC\Editor\AetherqorInventoryPOCBuilderV2.cs" (Join-Path $proj 'Assets\AETHERQOR_UI_POC\Editor\AetherqorInventoryPOCBuilderV2.cs') -Force
+
+          $skinRaw=Join-Path $root 'AQ_inventory_skin_source.png'
+          $skin=Join-Path $proj 'Assets\AETHERQOR_UI_POC\Textures\AQ_inventory_skin.png'
+          Invoke-WebRequest -Uri $env:AQ_SKIN_URL -OutFile $skinRaw -MaximumRedirection 10
+          if(-not (Test-Path -LiteralPath $skinRaw)){ throw 'Dark fantasy skin download failed.' }
+
+          $ffmpeg=Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if(-not $ffmpeg){ throw 'ffmpeg required for 4K master upscale but was not found.' }
+          & $ffmpeg.Source -y -i $skinRaw -vf "scale=4680:2160:flags=lanczos,unsharp=5:5:0.55:5:5:0.0" $skin
+          if($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $skin)){ throw '4K dark fantasy master generation failed.' }
+
+          $manifest=Join-Path $proj 'Packages\manifest.json'
+          $m=Get-Content -LiteralPath $manifest -Raw | ConvertFrom-Json
+          if(-not $m.dependencies.'com.unity.ugui'){ $m.dependencies | Add-Member -NotePropertyName 'com.unity.ugui' -NotePropertyValue '2.0.0' }
+          $m | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $manifest -Encoding utf8
+
+          "AQ_UI_ROOT=$root" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_UI_PROJECT=$proj" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_UI_OUT=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "UNITY_EXE=$unity" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Unity=$unity"
+          Write-Host "Skin4K=$skin"
+
+      - name: Build Figma-matched dark fantasy scene and capture scroll
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $log=Join-Path $env:AQ_UI_OUT 'unity_build.log'
+          $args=@('-batchmode','-quit','-projectPath',$env:AQ_UI_PROJECT,'-executeMethod','AetherqorInventoryPOCBuilderV2.BuildAndCapture','-logFile',$log)
+          $p=Start-Process -FilePath $env:UNITY_EXE -ArgumentList $args -Wait -PassThru -NoNewWindow
+          if($p.ExitCode -ne 0 -or -not (Test-Path -LiteralPath (Join-Path $env:AQ_UI_OUT 'AQ_DARK_TOP.png'))){
+            Get-Content -LiteralPath $log -Tail 280 -ErrorAction SilentlyContinue
+            throw "Unity dark UI POC failed exit=$($p.ExitCode)"
+          }
+          Get-Content -LiteralPath (Join-Path $env:AQ_UI_OUT 'validation.txt')
+
+      - name: Encode scroll proof
+        shell: pwsh
+        run: |
+          $ffmpeg=Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if($ffmpeg){
+            & $ffmpeg.Source -y -framerate 15 -i "$env:AQ_UI_OUT\frames\frame_%03d.png" -c:v libx264 -profile:v baseline -level 3.1 -pix_fmt yuv420p -movflags +faststart "$env:AQ_UI_OUT\AQ_DARK_SCROLL.mp4"
+            if($LASTEXITCODE -ne 0){ Write-Warning 'ffmpeg failed; PNG proof frames remain.' }
+          }
+
+      - name: Install validated 4K POC into live AETHERQOR
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath $env:AQ_REAL_PROJECT)){ Write-Warning "Live project not found: $env:AQ_REAL_PROJECT"; exit 0 }
+          $src=Join-Path $env:AQ_UI_PROJECT 'Assets\AETHERQOR_UI_POC'
+          $dst=Join-Path $env:AQ_REAL_PROJECT 'Assets\AETHERQOR_UI_POC'
+          if(Test-Path -LiteralPath $dst){
+            $stamp=Get-Date -Format 'yyyyMMdd_HHmmss'
+            Copy-Item -LiteralPath $dst -Destination "${dst}_BACKUP_$stamp" -Recurse -Force
+          }
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item (Join-Path $src '*') $dst -Recurse -Force
+          "InstalledTo=$dst" | Set-Content -LiteralPath (Join-Path $env:AQ_UI_OUT 'install.txt') -Encoding utf8
+
+      - name: Upload Unity proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR-Figma-DarkFantasy-Inventory-Unity-4K
+          path: |
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_TOP.png
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_TOP_4K.png
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_MIDDLE.png
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_BOTTOM.png
+            ${{ env.AQ_UI_OUT }}\AQ_DARK_SCROLL.mp4
+            ${{ env.AQ_UI_OUT }}\validation.txt
+            ${{ env.AQ_UI_OUT }}\install.txt
+            ${{ env.AQ_UI_OUT }}\unity_create.log
+            ${{ env.AQ_UI_OUT }}\unity_build.log
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0

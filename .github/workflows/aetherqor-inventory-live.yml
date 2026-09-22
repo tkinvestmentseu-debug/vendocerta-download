@@ -1,0 +1,101 @@
+name: AETHERQOR Live Inventory Figma Unity
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "inventory-live/**"
+      - ".github/workflows/aetherqor-inventory-live.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: aetherqor-inventory-live
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-capture:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 30
+    env:
+      AQ_PROJECT: 'D:\Aetherqor\Gra'
+      AQ_BG_URL: 'https://photoshop-api.adobe.io/v2/short-url/urn:aaid:ps:US:9199c424-80e8-4112-b547-de37b4a6df2f'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Figma inventory implementation into live project
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          if(-not (Test-Path -LiteralPath $env:AQ_PROJECT)){ throw "Project missing: $env:AQ_PROJECT" }
+          $runtime=Join-Path $env:AQ_PROJECT 'Assets\Aetherqor_Production\Runtime'
+          $editor=Join-Path $env:AQ_PROJECT 'Assets\Editor'
+          $res=Join-Path $env:AQ_PROJECT 'Assets\Aetherqor\Resources\AQ\V3\Ekrany'
+          New-Item -ItemType Directory -Force -Path $runtime,$editor,$res | Out-Null
+
+          $backupRoot=Join-Path 'D:\Aetherqor' ('InventoryBackup_'+(Get-Date -Format 'yyyyMMdd_HHmmss'))
+          New-Item -ItemType Directory -Force -Path $backupRoot | Out-Null
+          $old=Join-Path $runtime 'AQ_VberAIEkranEkwipunek.cs'
+          if(Test-Path -LiteralPath $old){ Copy-Item -LiteralPath $old -Destination (Join-Path $backupRoot 'AQ_VberAIEkranEkwipunek.cs') -Force }
+
+          Copy-Item "$env:GITHUB_WORKSPACE\inventory-live\AQ_VberAIEkranEkwipunek.cs" $old -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\inventory-live\AQ_VberAISafeAreaFitter.cs" (Join-Path $runtime 'AQ_VberAISafeAreaFitter.cs') -Force
+          Copy-Item "$env:GITHUB_WORKSPACE\inventory-live\AQ_InventoryLiveCapture.cs" (Join-Path $editor 'AQ_InventoryLiveCapture.cs') -Force
+
+          $raw=Join-Path $env:RUNNER_TEMP 'AQ_E12_BG_SOURCE.png'
+          $bg=Join-Path $res 'E12_Ekwipunek_Tlo_4K.png'
+          Invoke-WebRequest -Uri $env:AQ_BG_URL -OutFile $raw -MaximumRedirection 10
+          if(-not (Test-Path -LiteralPath $raw)){ throw 'Clean gothic background download failed.' }
+          $ffmpeg=Get-Command ffmpeg -ErrorAction Stop
+          & $ffmpeg.Source -y -i $raw -vf "scale=4680:2160:flags=lanczos,unsharp=5:5:0.4:5:5:0" $bg
+          if($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $bg)){ throw '4K background generation failed.' }
+
+          $out=Join-Path 'D:\AetherqorPipeline' ("InventoryLive_"+$env:GITHUB_RUN_ID)
+          if(Test-Path -LiteralPath $out){ Remove-Item -LiteralPath $out -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          "AQ_CAPTURE_OUT=$out" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "AQ_BACKUP=$backupRoot" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Run Unity 6000.4.8f1 live project capture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $unity='C:\Program Files\Unity\Hub\Editor\6000.4.8f1\Editor\Unity.exe'
+          if(-not (Test-Path -LiteralPath $unity)){ throw 'Unity 6000.4.8f1 not found.' }
+          $log=Join-Path $env:AQ_CAPTURE_OUT 'unity.log'
+          $args=@('-batchmode','-projectPath',$env:AQ_PROJECT,'-executeMethod','AQ_InventoryLiveCapture.CaptureEditMode','-quit','-logFile',$log)
+          $p=Start-Process -FilePath $unity -ArgumentList $args -Wait -PassThru -NoNewWindow
+          Get-Content -LiteralPath $log -Tail 320 -ErrorAction SilentlyContinue
+          if($p.ExitCode -ne 0){ throw "Unity capture failed exit=$($p.ExitCode)" }
+          if(-not (Test-Path -LiteralPath (Join-Path $env:AQ_CAPTURE_OUT 'Inventory_TOP.png'))){ throw 'Inventory_TOP.png missing' }
+          if(-not (Test-Path -LiteralPath (Join-Path $env:AQ_CAPTURE_OUT 'Inventory_4K.png'))){ throw 'Inventory_4K.png missing' }
+
+      - name: Build browser-compatible scroll video
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $ffmpeg=Get-Command ffmpeg -ErrorAction Stop
+          $top=Join-Path $env:AQ_CAPTURE_OUT 'Inventory_TOP.png'
+          $sc=Join-Path $env:AQ_CAPTURE_OUT 'Inventory_SCROLLED.png'
+          & $ffmpeg.Source -y -loop 1 -t 1.2 -i $top -loop 1 -t 1.6 -i $sc -filter_complex "[0:v][1:v]xfade=transition=fade:duration=0.35:offset=0.85,scale=1280:590" -t 2.6 -c:v libx264 -profile:v baseline -pix_fmt yuv420p -movflags +faststart (Join-Path $env:AQ_CAPTURE_OUT 'Inventory_SCROLL.mp4')
+          if($LASTEXITCODE -ne 0){ throw 'MP4 encode failed.' }
+
+      - name: Upload real Unity proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR-Inventory-Figma-Live-Unity
+          path: |
+            ${{ env.AQ_CAPTURE_OUT }}\Inventory_TOP.png
+            ${{ env.AQ_CAPTURE_OUT }}\Inventory_SCROLLED.png
+            ${{ env.AQ_CAPTURE_OUT }}\Inventory_PHONE_SAFEAREA.png
+            ${{ env.AQ_CAPTURE_OUT }}\Inventory_4K.png
+            ${{ env.AQ_CAPTURE_OUT }}\Inventory_SCROLL.mp4
+            ${{ env.AQ_CAPTURE_OUT }}\validation.txt
+            ${{ env.AQ_CAPTURE_OUT }}\FAIL.txt
+            ${{ env.AQ_CAPTURE_OUT }}\unity.log
+          if-no-files-found: warn
+          retention-days: 7
+          compression-level: 0
