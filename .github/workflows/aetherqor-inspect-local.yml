@@ -41,6 +41,9 @@ jobs:
             }
           }
 
+          $gildia=Get-ChildItem -LiteralPath (Join-Path $project 'Assets') -Recurse -File -Filter 'AQ_VberAIEkranGildia.cs' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if($gildia){ Copy-Item -LiteralPath $gildia.FullName -Destination (Join-Path $out 'AQ_VberAIEkranGildia.cs') -Force }
+
           $sceneHits=Get-ChildItem -LiteralPath $project -Recurse -File -Include '*.unity','*.cs' -ErrorAction SilentlyContinue |
             Select-String -Pattern 'AQ_VberAIPortretGracza|AQ_VberAIKit|AQ_VberAIStylBDM|Ekwipunek|Inventory' -List -ErrorAction SilentlyContinue |
             Select-Object -First 80
