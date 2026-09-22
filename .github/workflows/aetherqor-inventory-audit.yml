@@ -1,0 +1,64 @@
+name: AETHERQOR Inventory Live Audit
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/aetherqor-inventory-audit.yml"
+      - "inventory-live/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit-live-project:
+    runs-on: [self-hosted, Windows, X64, aetherqor-video]
+    timeout-minutes: 15
+    env:
+      AQ_PROJECT: 'D:\Aetherqor\Gra'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect real API and inventory spec
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP "AQ_INVENTORY_AUDIT_$env:GITHUB_RUN_ID"
+          if(Test-Path $out){Remove-Item $out -Recurse -Force}
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          if(-not (Test-Path -LiteralPath $env:AQ_PROJECT)){ throw "Project missing: $env:AQ_PROJECT" }
+
+          $spec=Join-Path $env:AQ_PROJECT 'docs\procedury\EKRAN_EKWIPUNEK_FIGMA_UNITY_SPEC.md'
+          if(-not (Test-Path -LiteralPath $spec)){ throw "Spec missing: $spec" }
+          Copy-Item -LiteralPath $spec -Destination (Join-Path $out 'EKRAN_EKWIPUNEK_FIGMA_UNITY_SPEC.md') -Force
+
+          $names=@('AQ_VberAIPortretGracza.cs','AQ_VberAIStylBDM.cs','AQ_VberAIKit.cs')
+          foreach($name in $names){
+            $match=Get-ChildItem -LiteralPath (Join-Path $env:AQ_PROJECT 'Assets') -Recurse -File -Filter $name -ErrorAction SilentlyContinue | Select-Object -First 1
+            if(-not $match){ throw "Required source not found: $name" }
+            Copy-Item -LiteralPath $match.FullName -Destination (Join-Path $out $name) -Force
+            "FOUND $name -> $($match.FullName)" | Add-Content -LiteralPath (Join-Path $out 'paths.txt')
+          }
+
+          $existing=Get-ChildItem -LiteralPath (Join-Path $env:AQ_PROJECT 'Assets') -Recurse -File -Filter 'AQ_VberAIEkranEkwipunek.cs' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if($existing){
+            Copy-Item -LiteralPath $existing.FullName -Destination (Join-Path $out 'AQ_VberAIEkranEkwipunek_EXISTING.cs') -Force
+            "FOUND EXISTING inventory -> $($existing.FullName)" | Add-Content -LiteralPath (Join-Path $out 'paths.txt')
+          } else {
+            "NO EXISTING AQ_VberAIEkranEkwipunek.cs" | Add-Content -LiteralPath (Join-Path $out 'paths.txt')
+          }
+
+          $unity='C:\Program Files\Unity\Hub\Editor\6000.4.8f1\Editor\Unity.exe'
+          if(Test-Path -LiteralPath $unity){ "UNITY=$unity" | Add-Content -LiteralPath (Join-Path $out 'paths.txt') } else { "UNITY_NOT_FOUND_AT_EXPECTED_PATH" | Add-Content -LiteralPath (Join-Path $out 'paths.txt') }
+
+          "AQ_AUDIT_OUT=$out" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload audit
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR-Inventory-Live-Audit
+          path: ${{ env.AQ_AUDIT_OUT }}
+          retention-days: 3
+          compression-level: 0
