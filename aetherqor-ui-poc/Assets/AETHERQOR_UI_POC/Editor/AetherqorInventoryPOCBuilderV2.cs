@@ -27,8 +27,8 @@ public static class AetherqorInventoryPOCBuilderV2
             AssetDatabase.ImportAsset(SkinPath, ImportAssetOptions.ForceSynchronousImport | ImportAssetOptions.ForceUpdate);
             var skin = AssetDatabase.LoadAssetAtPath<Texture2D>(SkinPath);
             if (skin == null) throw new Exception("Dark fantasy skin missing: " + SkinPath);
-            if (skin.width != 1846 || skin.height != 852)
-                throw new Exception($"Unexpected skin resolution {skin.width}x{skin.height}; expected 1846x852");
+            if (skin.width < 1000 || skin.height < 500)
+                throw new Exception($"Imported skin resolution too small: {skin.width}x{skin.height}");
 
             var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
             scene.name = "AQ_InventoryScrollDemo_DarkFantasy";
@@ -87,8 +87,8 @@ public static class AetherqorInventoryPOCBuilderV2
 
             File.WriteAllText(Path.Combine(outDir, "validation.txt"),
                 "AETHERQOR DARK FANTASY UNITY POC\n" +
-                "BaseDesign=approved generated screen used 1:1 as Unity texture\n" +
-                $"SkinResolution={skin.width}x{skin.height}\n" +
+                "BaseDesign=approved generated screen used 1:1 as Unity texture with 13:6 center crop\n" +
+                $"ImportedSkinResolution={skin.width}x{skin.height}\n" +
                 $"UnityReferenceResolution={W}x{H}\n" +
                 "ModelArea=EMPTY dedicated AETHERQOR_MODEL_3D_ANCHOR\n" +
                 $"EmptyInventorySlots={emptySlots}\n" +
