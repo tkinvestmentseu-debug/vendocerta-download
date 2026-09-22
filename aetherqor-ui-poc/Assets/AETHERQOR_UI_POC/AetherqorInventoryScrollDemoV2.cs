@@ -13,12 +13,14 @@ public class AetherqorInventoryScrollDemoV2 : MonoBehaviour
     readonly List<RawImage> slotImages = new();
     RawImage background;
     Texture2D skin;
-    static readonly Rect SlotUv = new Rect(
+    static readonly Rect SlotDesignUv = new Rect(
         1237f / 1846f,
         (852f - 184f - 116f) / 852f,
         116f / 1846f,
         116f / 852f
     );
+    Rect backgroundUv = new Rect(0,0,1,1);
+    Rect slotUv = SlotDesignUv;
 
     public void BuildNow()
     {
@@ -122,11 +124,14 @@ public class AetherqorInventoryScrollDemoV2 : MonoBehaviour
     public void ApplySkin(Texture2D texture)
     {
         skin = texture;
+        backgroundUv = CenterCropUv(texture.width, texture.height, 13f / 6f);
+        slotUv = MapDesignUvIntoTexture(SlotDesignUv, backgroundUv);
         background.texture = texture;
+        background.uvRect = backgroundUv;
         foreach (var slot in slotImages)
         {
             slot.texture = texture;
-            slot.uvRect = SlotUv;
+            slot.uvRect = slotUv;
         }
     }
 
@@ -150,7 +155,7 @@ public class AetherqorInventoryScrollDemoV2 : MonoBehaviour
         var raw = go.GetComponent<RawImage>();
         raw.color = Color.white;
         raw.raycastTarget = true;
-        raw.uvRect = SlotUv;
+        raw.uvRect = slotUv;
         raw.texture = skin;
         slotImages.Add(raw);
     }
@@ -195,6 +200,31 @@ public class AetherqorInventoryScrollDemoV2 : MonoBehaviour
         bar.targetGraphic = hgo.GetComponent<Image>();
         scroll.verticalScrollbar = bar;
         scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.Permanent;
+    }
+
+    static Rect CenterCropUv(int width, int height, float targetAspect)
+    {
+        float sourceAspect = width / (float)height;
+        if (Mathf.Abs(sourceAspect - targetAspect) < 0.0001f) return new Rect(0,0,1,1);
+        if (sourceAspect < targetAspect)
+        {
+            float visibleHeight = sourceAspect / targetAspect;
+            float y = (1f - visibleHeight) * 0.5f;
+            return new Rect(0f, y, 1f, visibleHeight);
+        }
+        float visibleWidth = targetAspect / sourceAspect;
+        float x = (1f - visibleWidth) * 0.5f;
+        return new Rect(x, 0f, visibleWidth, 1f);
+    }
+
+    static Rect MapDesignUvIntoTexture(Rect designUv, Rect bgUv)
+    {
+        return new Rect(
+            bgUv.x + designUv.x * bgUv.width,
+            bgUv.y + designUv.y * bgUv.height,
+            designUv.width * bgUv.width,
+            designUv.height * bgUv.height
+        );
     }
 
     static void EnsureEventSystem()
