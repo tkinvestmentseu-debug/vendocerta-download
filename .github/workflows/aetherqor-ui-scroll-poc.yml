@@ -1,0 +1,100 @@
+name: AETHERQOR Unity Mobile Inventory POC
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "aetherqor-ui-poc/**"
+      - ".github/workflows/aetherqor-ui-scroll-poc.yml"
+  workflow_dispatch:
+
+jobs:
+  unity-ui-poc:
+    runs-on: [self-hosted, aetherqor-video]
+    timeout-minutes: 35
+    env:
+      AQ_REAL_PROJECT: 'D:\Aetherfall - Realms of the Veil'
+    steps:
+      - name: Checkout POC branch
+        uses: actions/checkout@v4
+
+      - name: Prepare isolated Unity project
+        shell: powershell
+        run: |
+          $src = Join-Path $env:GITHUB_WORKSPACE 'aetherqor-ui-poc'
+          $proj = Join-Path $env:RUNNER_TEMP 'AQ_UI_POC_PROJECT'
+          $out = Join-Path $env:RUNNER_TEMP 'AQ_UI_POC_OUTPUT'
+          if (Test-Path $proj) { Remove-Item $proj -Recurse -Force }
+          if (Test-Path $out) { Remove-Item $out -Recurse -Force }
+          New-Item -ItemType Directory -Force -Path $proj,$out | Out-Null
+          Copy-Item (Join-Path $src '*') $proj -Recurse -Force
+          "AQ_UI_PROJECT=$proj" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "AQ_UI_OUT=$out" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $preferred = 'C:\Program Files\Unity\Hub\Editor\6000.4.8f1\Editor\Unity.exe'
+          if (Test-Path $preferred) {
+            $unity = $preferred
+          } else {
+            $unity = Get-ChildItem 'C:\Program Files\Unity\Hub\Editor' -Filter Unity.exe -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '6000\.4\.8f1' } | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $unity) { throw 'Unity 6000.4.8f1 was not found on the self-hosted runner.' }
+          "UNITY_EXE=$unity" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Unity: $unity"
+          Write-Host "POC project: $proj"
+          Write-Host "Output: $out"
+
+      - name: Build functional Unity scene and capture scroll
+        shell: powershell
+        run: |
+          & "$env:UNITY_EXE" -batchmode -projectPath "$env:AQ_UI_PROJECT" -executeMethod AetherqorInventoryPOCBuilder.BuildAndCapture -logFile "$env:AQ_UI_OUT\unity.log"
+          $code = $LASTEXITCODE
+          if (Test-Path "$env:AQ_UI_OUT\unity.log") { Get-Content "$env:AQ_UI_OUT\unity.log" -Tail 180 }
+          if ($code -ne 0) { exit $code }
+          if (-not (Test-Path "$env:AQ_UI_OUT\AQ_inventory_TOP.png")) { throw 'TOP screenshot missing' }
+          if (-not (Test-Path "$env:AQ_UI_OUT\AQ_inventory_BOTTOM.png")) { throw 'BOTTOM screenshot missing' }
+
+      - name: Encode scroll demonstration
+        shell: powershell
+        run: |
+          $ffmpeg = Get-Command ffmpeg -ErrorAction SilentlyContinue
+          if ($ffmpeg) {
+            & $ffmpeg.Source -y -framerate 15 -i "$env:AQ_UI_OUT\frames\frame_%03d.png" -c:v libx264 -pix_fmt yuv420p "$env:AQ_UI_OUT\AQ_inventory_SCROLL.mp4"
+            if ($LASTEXITCODE -ne 0) { Write-Warning 'ffmpeg encode failed; PNG proof frames remain available.' }
+          } else {
+            Write-Warning 'ffmpeg not on PATH; PNG proof frames remain available.'
+          }
+
+      - name: Install validated POC into AETHERQOR Assets
+        shell: powershell
+        run: |
+          if (-not (Test-Path $env:AQ_REAL_PROJECT)) {
+            Write-Warning "AETHERQOR project path not present on runner: $env:AQ_REAL_PROJECT"
+            exit 0
+          }
+          $src = Join-Path $env:AQ_UI_PROJECT 'Assets\AETHERQOR_UI_POC'
+          $dst = Join-Path $env:AQ_REAL_PROJECT 'Assets\AETHERQOR_UI_POC'
+          if (Test-Path $dst) {
+            $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
+            $backup = "${dst}_BACKUP_$stamp"
+            Copy-Item $dst $backup -Recurse -Force
+            Write-Host "Existing POC backed up to $backup"
+          }
+          New-Item -ItemType Directory -Force -Path $dst | Out-Null
+          Copy-Item (Join-Path $src '*') $dst -Recurse -Force
+          "InstalledTo=$dst" | Out-File "$env:AQ_UI_OUT\install.txt" -Encoding utf8
+          Write-Host "Installed POC into $dst"
+
+      - name: Upload Unity proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AETHERQOR-Unity-Inventory-Scroll-POC
+          path: |
+            ${{ env.AQ_UI_OUT }}\AQ_inventory_TOP.png
+            ${{ env.AQ_UI_OUT }}\AQ_inventory_MIDDLE.png
+            ${{ env.AQ_UI_OUT }}\AQ_inventory_BOTTOM.png
+            ${{ env.AQ_UI_OUT }}\AQ_inventory_SCROLL.mp4
+            ${{ env.AQ_UI_OUT }}\validation.txt
+            ${{ env.AQ_UI_OUT }}\install.txt
+            ${{ env.AQ_UI_OUT }}\unity.log
+          if-no-files-found: warn
+          retention-days: 7
